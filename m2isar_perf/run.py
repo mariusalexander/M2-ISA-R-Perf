@@ -20,12 +20,14 @@ import argparse
 import pathlib
 import pickle
 import sys
+from objprint import op
 
 from common import common as cf
 
 from frontends.corePerfDsl import api as Frontend # TODO: Change from API to Class format 
 
 from meta_models.scheduling_model.SchedulingTransformer import SchedulingTransformer
+from meta_models.block_scheduling_model.BlockSchedulingTransformer import BlockSchedulingTransformer, BasicBlockDescription
 
 from backends.monitor_extractor import api as backend_monitor_extractor # TODO: Change from API to Class format 
 from backends.structure_viewer.StructuralModelViewer import StructuralModelViewer
@@ -40,6 +42,7 @@ argParser.add_argument("-c", "--code_gen", action="store_true", help="Generate e
 argParser.add_argument("-m", "--monitor_description", action="store_true", help="Generate monitor description")
 argParser.add_argument("-i", "--info_print", action="store_true", help="Generate info/debug/doc prints")
 argParser.add_argument("-d", "--dump_dir", help="Directory to dump intermediatly generated models.")
+argParser.add_argument("-b", "--block_transform", nargs=1, help="Basic Block to transform")
 args = argParser.parse_args()
 
 # Resolve outDir
@@ -60,6 +63,15 @@ if args.monitor_description:
     backend_monitor_extractor.execute(structModel, outDir)
 if args.code_gen:
     EstimatorGenerator().execute(schedModel, outDir)
-if args.info_print :
+if args.info_print:
     #StructuralModelViewer().execute(structModel, outDir)
     SchedulingModelViewer().execute(schedModel, outDir)
+if args.block_transform:
+    print(args.block_transform)
+    desc = BasicBlockDescription("__test", 0x000003c4)
+    desc.addInstruction("addi", rd=15, rs1=15, imm=255)
+    desc.addInstruction("add" , rd=16, rs1=15, rs2=7)
+    desc.addInstruction("add" , rd=17, rs1=15, rs2=16)
+    op(desc)
+    blockSchedule = BlockSchedulingTransformer().transform(schedModel, desc)
+    SchedulingModelViewer().execute(blockSchedule, outDir)
