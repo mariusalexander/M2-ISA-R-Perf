@@ -69,6 +69,20 @@ class BlockSchedulingTransformer:
 
         return blockSchedulingModel
 
+    def __findSchedulingFunctionByName(self, elements, instr_name):
+        element = list(filter(lambda s: s.name == instr_name, elements))
+        if len(element) == 0:
+            raise RuntimeError(f"BlockSchedulingTransformer: No scheduling instructions found for instruction '{instr_name}'")
+        assert len(element) == 1
+        return element[0]
+
+    def __findElementBy(self, elements, func, do_assert=True):
+        element = list(filter(func, elements))
+        if not do_assert:
+            return element
+        assert len(element) == 1
+        return element[0]
+
     def __generateBlockSchedulingFunction(self, schedVariant_, blockVariant_, blockDesc_:BasicBlockDescription):
 
         blockFunction = blockVariant_.createSchedulingFunction(blockDesc_.name, self.id_)
@@ -79,36 +93,73 @@ class BlockSchedulingTransformer:
         # iterate through each instruction in BB
         for block_i in range(0, len(blockDesc_.instructions)):
             block_instr = blockDesc_.instructions[block_i]
+            print("  > Merging instruction", block_instr.name)
 
             # find instruction in scheduling model
-            schedulingFunction = list(filter(lambda s: s.name == block_instr.name, schedulingFunctions))
-            if len(schedulingFunction) == 0:
-                raise RuntimeError(f"BlockSchedulingTransformer: No scheduling instructions found for instruction '{block_instr.name}'")
-            schedulingFunction = schedulingFunction[0]
+            schedulingFunction = self.__findSchedulingFunctionByName(schedulingFunctions, block_instr.name)
 
+            # TODO: resolve "Enter" nodes
             # add all nodes of instruction to block schedule
-            for node_i in schedulingFunction.nodes:
-                node = blockFunction.createNode(f"{node_i.name}_{block_i}")
-                node.delay = node_i.delay
-                node.resourceModel = node_i.resourceModel
+            for source_node in schedulingFunction.nodes:
+                block_node = blockFunction.createNode(f"{source_node.name}_{block_i}")
+                block_node.delay = source_node.delay
+                block_node.resourceModel = source_node.resourceModel
                 # setup in and out edges respectively
                 if block_i == 0:
-                    node.inEdges = node_i.inEdges
+                    block_node.inEdges = source_node.inEdges
                 if block_i+1 == len(blockDesc_.instructions):
-                    node.outEdges = node_i.outEdges
+                    block_node.outEdges = source_node.outEdges
 
-            # setup instruction-internal in/out nodes
-            for node_i in schedulingFunction.nodes:
-                node = list(filter(lambda n: n.name == f"{node_i.name}_{block_i}", blockFunction.nodes))
-                assert len(node) == 1
-                node = node[0]
-                for type in ["inNodes", "outNodes"]:
-                    nodes = getattr(node_i, type)
-                    for node_i in nodes:
-                        n = list(filter(lambda n: n.name == f"{node_i.name}_{block_i}", blockFunction.nodes))
-                        assert len(n) == 1
-                        getattr(node, type).append(n[0])
+            # only then copy internal corresponding in/out-nodes for each node
+            for source_node in schedulingFunction.nodes:
+                block_node = self.__findElementBy(blockFunction.nodes, lambda n: n.name == f"{source_node.name}_{block_i}")
+                # TODO: is appending to in nodes sufficient?
+                for type in ["inNodes"]: #, "outNodes"]:
+                    source_dependencies = getattr(source_node, type)
+                    for source_dependency in source_dependencies:
+                        depndency = self.__findElementBy(blockFunction.nodes, lambda n: n.name == f"{source_dependency.name}_{block_i}")
+                        getattr(block_node, type).append(depndency)
 
-            # TODO: interconnect nodes of individial instructions
+            # connect all outgoing static edges of the previous instruction to nodes in the current instruction
+            if block_i == 0:
+                continue
 
-            print(vars(node))
+            prev_block_instr = blockDesc_.instructions[block_i - 1]
+            prevSchedulingFunction = self.__findElementBy(schedulingFunctions, lambda n: n.name == prev_block_instr.name)
+
+            # TODO: for some stages it is necessary to look more into the past (e.g. WB stage on CV32) 
+            # loop over all nodes of previous instruction
+            for prev_source_node in prevSchedulingFunction.nodes:
+                prev_block_node = self.__findElementBy(blockFunction.nodes, lambda n: n.name == f"{prev_source_node.name}_{block_i - 1}")
+                out_edges = prev_source_node.getAllOutEdges()
+
+                # loop over all outgoing edges in previous instruction
+                for out_edge in out_edges:
+                    # skip dynamic edges for now
+                    if out_edge.dynamic:
+                        print("    WARN ", f"Skipping dynamic out edge to '{out_edge.connectorModel.name}'")
+                        continue
+                    # TODO: check depth
+                    if out_edge.depth > 1:
+                        print("    WARN ", "Edge with depth > 1 may not be handled correctly!")
+
+                    timingVariable = out_edge.timingVariable.name
+
+                    print("   ", f"attempting to connect '{timingVariable}'...")
+
+                    # find target node in current instruction
+                    for current_source_node in schedulingFunction.nodes:
+                        current_block_node = self.__findElementBy(blockFunction.nodes, lambda n: n.name == f"{current_source_node.name}_{block_i}")
+                        in_edges = current_source_node.getAllInEdges()
+                        match = self.__findElementBy(in_edges, lambda e: not e.dynamic and e.timingVariable.name == timingVariable, do_assert=False)
+                        if not len(match):
+                            continue
+
+                        # add direct node connection
+                        print("   ", f"-> connected to '{current_block_node.name}'!")
+                        #prev_block_node.outNodes.append(current_block_node)
+                        current_block_node.addInNode(prev_block_node)
+
+
+
+            
