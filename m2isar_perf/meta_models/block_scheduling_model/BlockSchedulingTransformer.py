@@ -76,10 +76,8 @@ class BlockSchedulingTransformer:
         assert len(element) == 1
         return element[0]
 
-    def __findElementBy(self, elements, func, do_assert=True):
-        element = list(filter(func, elements))
-        if not do_assert:
-            return element
+    def __findElementByName(self, elements, name):
+        element = list(filter(lambda e: e.name == name, elements))
         assert len(element) == 1
         return element[0]
 
@@ -112,12 +110,12 @@ class BlockSchedulingTransformer:
 
             # only then copy internal corresponding in/out-nodes for each node
             for source_node in schedulingFunction.nodes:
-                block_node = self.__findElementBy(blockFunction.nodes, lambda n: n.name == f"{source_node.name}_{block_i}")
+                block_node = self.__findElementByName(blockFunction.nodes, f"{source_node.name}_{block_i}")
                 # TODO: is appending to in nodes sufficient?
                 for type in ["inNodes"]: #, "outNodes"]:
                     source_dependencies = getattr(source_node, type)
                     for source_dependency in source_dependencies:
-                        depndency = self.__findElementBy(blockFunction.nodes, lambda n: n.name == f"{source_dependency.name}_{block_i}")
+                        depndency = self.__findElementByName(blockFunction.nodes, f"{source_dependency.name}_{block_i}")
                         getattr(block_node, type).append(depndency)
 
             # connect all outgoing static edges of the previous instruction to nodes in the current instruction
@@ -125,12 +123,12 @@ class BlockSchedulingTransformer:
                 continue
 
             prev_block_instr = blockDesc_.instructions[block_i - 1]
-            prevSchedulingFunction = self.__findElementBy(schedulingFunctions, lambda n: n.name == prev_block_instr.name)
+            prevSchedulingFunction = self.__findElementByName(schedulingFunctions, prev_block_instr.name)
 
             # TODO: for some stages it is necessary to look more into the past (e.g. WB stage on CV32) 
             # loop over all nodes of previous instruction
             for prev_source_node in prevSchedulingFunction.nodes:
-                prev_block_node = self.__findElementBy(blockFunction.nodes, lambda n: n.name == f"{prev_source_node.name}_{block_i - 1}")
+                prev_block_node = self.__findElementByName(blockFunction.nodes, f"{prev_source_node.name}_{block_i - 1}")
                 out_edges = prev_source_node.getAllOutEdges()
 
                 # loop over all outgoing edges in previous instruction
@@ -149,9 +147,9 @@ class BlockSchedulingTransformer:
 
                     # find target node in current instruction
                     for current_source_node in schedulingFunction.nodes:
-                        current_block_node = self.__findElementBy(blockFunction.nodes, lambda n: n.name == f"{current_source_node.name}_{block_i}")
+                        current_block_node = self.__findElementByName(blockFunction.nodes, f"{current_source_node.name}_{block_i}")
                         in_edges = current_source_node.getAllInEdges()
-                        match = self.__findElementBy(in_edges, lambda e: not e.dynamic and e.timingVariable.name == timingVariable, do_assert=False)
+                        match = list(filter(lambda e: not e.dynamic and e.timingVariable.name == timingVariable, in_edges))
                         if not len(match):
                             continue
 
