@@ -42,7 +42,7 @@ argParser.add_argument("-c", "--code_gen", action="store_true", help="Generate e
 argParser.add_argument("-m", "--monitor_description", action="store_true", help="Generate monitor description")
 argParser.add_argument("-i", "--info_print", action="store_true", help="Generate info/debug/doc prints")
 argParser.add_argument("-d", "--dump_dir", help="Directory to dump intermediatly generated models.")
-argParser.add_argument("-b", "--block_transform", nargs=1, help="Basic Block to transform")
+argParser.add_argument("-b", "--block_transform", action="store_true", help="Basic Block to transform")
 args = argParser.parse_args()
 
 # Resolve outDir
@@ -55,7 +55,7 @@ else:
     sys.exit("FATAL: Description format is not supported. Currently only supporting files of type .corePerfDsl")
 
 # Call model transformer (structural -> scheduling model) if applicable
-if args.code_gen or args.info_print:
+if args.code_gen or args.info_print or args.block_transform:
     schedModel = SchedulingTransformer().transform(structModel)
 
 # Call applicable backends
@@ -79,7 +79,6 @@ if args.block_transform:
     desc2.addInstruction("lw"  , rd=3 , rs1=2)
     desc2.addInstruction("addi", rd=4, rs1=3, imm=16)
     desc2.addInstruction("sw"  , rs1=3, rs2=4)
-    for desc in [desc1, desc2]:
-        op(desc)
-        blockSchedule = BlockSchedulingTransformer().transform(schedModel, desc)
-        SchedulingModelViewer().execute(blockSchedule, outDir)
+
+    blockSchedule = BlockSchedulingTransformer().transform(schedModel, [desc1, desc2])
+    SchedulingModelViewer().execute(blockSchedule, outDir)

@@ -14,7 +14,7 @@
 # limitations under the License.
 #
 
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Dict
 
 from meta_models.common.FrozenBase import FrozenBase
 

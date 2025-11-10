@@ -14,10 +14,11 @@
 # limitations under the License.
 #
 
-import copy
 from objprint import op
-from meta_models.scheduling_model.SchedulingModel import SchedulingModel
-from meta_models.structural_model.StructuralModel import StructuralModel
+
+import copy
+from typing import List, Dict
+from meta_models.scheduling_model.SchedulingModel import SchedulingModel, Variant, SchedulingFunction, Node
 
 # wrapper to support dot-notation (see https://stackoverflow.com/questions/2352181/how-to-use-a-dot-to-access-members-of-dictionary)
 class dotdict(dict):
@@ -50,79 +51,82 @@ class BasicBlockDescription:
         self.instructions.append(dotdict(instr))
 
 class BlockSchedulingTransformer:
-    """Transforms a basic block into a block scheudling model. The model only contains the scheduling function for that basic block."""
+    """Block Scheduling Transformer helper class."""
 
     def __init__(self):
-        self.id_=0;
+        self.id_=0
         pass
 
-    def transform(self, schedulingModel:SchedulingModel, blockDesc:BasicBlockDescription) -> SchedulingModel:
-
+    def transform(self, sched_model:SchedulingModel, block_descriptions:List[BasicBlockDescription]) -> SchedulingModel:
+        """Transforms basic blocks (BB) into a block scheudling model. The model only contains scheduling function that describe each BB."""
         print ("-- TRANSMFORMER: BLOCK_SCHEDULING_MODEL --")
 
         blockSchedulingModel = SchedulingModel()
 
-        for variant_i in schedulingModel.getAllVariants():
-            print("> Generating block scheduling model for", variant_i.name)
+        # iterate over each variant
+        for sched_variant in sched_model.getAllVariants():
+            print(f"> Generating block scheduling model for {sched_variant.name}")
 
-            blockVariant = blockSchedulingModel.createVariant(variant_i.name)
+            block_variant = blockSchedulingModel.createVariant(sched_variant.name)
+
             # TODO: can we simply copy timing variables and external models?
-            blockVariant.timingVariables = copy.deepcopy(variant_i.timingVariables)
-            blockVariant.externalModels  = copy.deepcopy(variant_i.externalModels)
+            block_variant.timingVariables = copy.deepcopy(sched_variant.timingVariables)
+            block_variant.externalModels  = copy.deepcopy(sched_variant.externalModels)
 
-            self.__generateBlockSchedulingFunction(variant_i, blockVariant, blockDesc)
+            # iterate over each BB
+            for block_desc in block_descriptions:
+                self.__generateBlockSchedulingFunction(sched_variant, block_variant, block_desc)
 
         return blockSchedulingModel
 
-    def __findSchedulingFunctionByName(self, elements, instr_name):
-        element = list(filter(lambda s: s.name == instr_name, elements))
-        if len(element) == 0:
-            raise RuntimeError(f"BlockSchedulingTransformer: No scheduling instructions found for instruction '{instr_name}'")
-        assert len(element) == 1
-        return element[0]
+    def __generateBlockSchedulingFunction(self, sched_variant:Variant, block_variant:Variant, block_desc:BasicBlockDescription):
+        """ """
+        print(f" > Generating block scheduling function for '{block_desc.name}'...")
 
-    def __findElementByName(self, elements, name):
-        element = list(filter(lambda e: e.name == name, elements))
-        assert len(element) == 1
-        return element[0]
+        block_function = block_variant.createSchedulingFunction(block_desc.name, self.id_)
+        self.id_ += 1
 
-    def __generateBlockSchedulingFunction(self, schedVariant_, blockVariant_, blockDesc_:BasicBlockDescription):
+        # iterate over each instruction in BB
+        for block_idx in range(0, len(block_desc.instructions)):
+            block_instr = block_desc.instructions[block_idx]
+            print(f"  > Appending instruction '{block_instr.name}'...")
 
-        blockFunction = blockVariant_.createSchedulingFunction(blockDesc_.name, self.id_)
-        self.id_ = self.id_ + 1
+            # find instruction of BB in base scheduling model and append nodes to block function
+            sched_functions = sched_variant.getAllSchedulingFunctions()
+            sched_function = self.__findSchedulingFunctionByName(sched_functions, block_instr.name)
+            self.__appendSchedulingFunction(sched_function, block_variant, block_function, block_idx)
+            
+        # TODO: resolve "Enter" nodes
+        self.__resolveEdges(sched_variant, block_function, block_desc)
+            
+    def __appendSchedulingFunction(self, sched_function:SchedulingFunction, block_variant:Variant, block_function:SchedulingFunction, block_idx:int):
+        """ Appends all nodes of `sched_function` to `block_function`. Instructions are not yet interconnected. """
+        # add all nodes of instruction to block schedule
+        for source_node in sched_function.nodes:
+            block_node = block_function.createNode(f"{source_node.name}_{block_idx}")
+            # apply properties
+            self.__copyNode(source_node, block_node)
 
-        scheduling_functions = schedVariant_.getAllSchedulingFunctions()
-
-        # iterate through each instruction in BB
-        for block_i in range(0, len(blockDesc_.instructions)):
-            block_instr = blockDesc_.instructions[block_i]
-            print("  > Merging instruction", block_instr.name)
-
-            # find instruction in scheduling model
-            schedulingFunction = self.__findSchedulingFunctionByName(scheduling_functions, block_instr.name)
-
-            # TODO: resolve "Enter" nodes
-            # add all nodes of instruction to block schedule
-            for source_node in schedulingFunction.nodes:
-                block_node = blockFunction.createNode(f"{source_node.name}_{block_i}")
-                block_node.delay = source_node.delay
-                block_node.resourceModel = source_node.resourceModel
-                # TODO: set output edges properly
-                if block_i+1 == len(blockDesc_.instructions):
-                    block_node.outEdges = copy.deepcopy(source_node.outEdges)
-
-            # only then copy internal corresponding in/out-nodes for each node
-            for source_node in schedulingFunction.nodes:
-
-                block_node = self.__findElementByName(blockFunction.nodes, f"{source_node.name}_{block_i}")
-
-                # TODO: is appending to in-nodes sufficient?
-                source_dependencies = source_node.inNodes
-                for source_dependency in source_dependencies:
-                    dependency = self.__findElementByName(blockFunction.nodes, f"{source_dependency.name}_{block_i}")
-                    block_node.addInNode(dependency)
+        # setup in/out-nodes for each node of the instruction
+        for source_node in sched_function.nodes:
+            block_node = self.__findNode(block_function, block_idx, source_node)
+            for source_dependency in source_node.inNodes:
+                dependency = self.__findNode(block_function, block_idx, source_dependency)
+                block_node.addInNode(dependency)
                 
-                for in_edge in source_node.inEdges:
+    def __resolveTimingVariables(self, block_node:Node):
+        print("   > Resolving timing variables...")
+
+    def __resolveEdges(self, sched_variant:Variant, block_function:SchedulingFunction, block_desc:BasicBlockDescription):
+        print("  > Merging edges...")
+
+        timingVariableMapping = { var:None for var in block_function.parent.getAllTimingVariables()}
+        op(timingVariableMapping)
+
+        for block_node in block_function.nodes:
+            pass
+        """
+                for in_edge in block_node.inEdges:
                     # dynamic edges
                     if in_edge.dynamic:
 
@@ -138,8 +142,8 @@ class BlockSchedulingTransformer:
                         print("   ", f"attempting to resolve dynamic ingoing edge to 'r{register}' ({register_name})...")
 
                         success = False                        
-                        for prev_block_i in reversed(range(0, block_i)):
-                            prev_block_instr = blockDesc_.instructions[prev_block_i]
+                        for prev_block_i in reversed(range(0, block_idx)):
+                            prev_block_instr = block_desc.instructions[prev_block_i]
                             # check if previous instruction uses register
                             # TODO: differentiate between using/setting register?
                             # TODO: fix this hard-coded mess
@@ -147,9 +151,9 @@ class BlockSchedulingTransformer:
                             if not target_register_name:
                                 continue
                             print("   ", f"instr no. {prev_block_i} uses register 'r{register}' in {target_register_name}'")
-                            prev_scheduling_function = self.__findSchedulingFunctionByName(scheduling_functions, prev_block_instr.name)
-                            for prev_source_node in prev_scheduling_function.nodes:
-                                prev_block_node = self.__findElementByName(blockFunction.nodes, f"{prev_source_node.name}_{prev_block_i}")
+                            prev_sched_function = self.__findSchedulingFunctionByName(sched_functions, prev_block_instr.name)
+                            for prev_source_node in prev_sched_function.nodes:
+                                prev_block_node = self.__findElementByName(block_function.nodes, f"{prev_source_node.name}_{prev_block_i}")
                                 out_edges = prev_source_node.getAllOutEdges()
                                 #op(out_edges)
                                 out_edges = list(filter(lambda e: e.dynamic and e.name == target_register_name and e.connectorModel.name == 'regModel', out_edges))
@@ -175,14 +179,14 @@ class BlockSchedulingTransformer:
                         print("    WARN ", "Edge with depth > 1 may not be handled correctly!")
 
                     timing_variable = in_edge.timingVariable.name
-                    print("   ", f"attempting to connect '{timing_variable}_{block_i}'...")
+                    print("   ", f"attempting to connect '{timing_variable}_{block_idx}'...")
 
                     success = False
-                    for prev_block_i in reversed(range(0, block_i)):
-                        prev_block_instr = blockDesc_.instructions[prev_block_i]
-                        prev_scheduling_function = self.__findSchedulingFunctionByName(scheduling_functions, prev_block_instr.name)
-                        for prev_source_node in prev_scheduling_function.nodes:
-                            prev_block_node = self.__findElementByName(blockFunction.nodes, f"{prev_source_node.name}_{prev_block_i}")
+                    for prev_block_i in reversed(range(0, block_idx)):
+                        prev_block_instr = block_desc.instructions[prev_block_i]
+                        prev_sched_function = self.__findSchedulingFunctionByName(sched_functions, prev_block_instr.name)
+                        for prev_source_node in prev_sched_function.nodes:
+                            prev_block_node = self.__findElementByName(block_function.nodes, f"{prev_source_node.name}_{prev_block_i}")
                             out_edges = prev_source_node.getAllOutEdges()
                             out_edges = list(filter(lambda e: not e.dynamic and e.timingVariable.name == timing_variable, out_edges))
                             for out_edge in out_edges:
@@ -222,20 +226,7 @@ class BlockSchedulingTransformer:
 
                     print("   ", f"attempting to resolve dynamic outgoing edge to 'r{register}' ({register_name})...")
 
-                    success = False   
-                      
-                    # TODO: always write to regModel if its a target register?
-                    if False: 
-                        for next_block_i in range(block_i + 1, len(blockDesc_.instructions)):
-                            next_block_instr = blockDesc_.instructions[next_block_i]
-                            # check if next instruction use register thats being set in this node 
-                            # TODO: fix this hard-coded mess
-                            target_register_name = 'Xd' if next_block_instr['rd'] == register else None
-                            if not target_register_name:
-                                continue
-                            print("   ", f"-> aborting, instr no. {next_block_i} uses register 'r{register}' in {target_register_name}'")
-                            success = True
-                            break
+                    success = False
 
                     if success:
                         continue
@@ -245,7 +236,38 @@ class BlockSchedulingTransformer:
                     out_edge.name += f"(r{register})"
                     block_node.outEdges.append(out_edge)
                     continue
-
+"""
 
 
             
+
+    def __findSchedulingFunctionByName(self, elements, instr_name):
+        element = list(filter(lambda s: s.name == instr_name, elements))
+        if len(element) == 0:
+            raise RuntimeError(f"BlockSchedulingTransformer: No scheduling instructions found for instruction '{instr_name}'")
+        assert len(element) == 1
+        return element[0]
+
+    def __findElementByName(self, elements, name):
+        element = list(filter(lambda e: e.name == name, elements))
+        assert len(element) == 1
+        return element[0]
+    
+    def __findNode(self, block_function:SchedulingFunction, block_idx:int, source_node:Node):
+        return self.__findElementByName(block_function.nodes, f"{source_node.name}_{block_idx}")
+    
+    def __copyNode(self, source_node:Node, block_node:Node):
+        # apply properties
+        block_node.delay = source_node.delay
+        if source_node.resourceModel:
+            block_node.resourceModel = block_node.parentVariant.getResourceModel(source_node.resourceModel.name)
+        for in_edge in source_node.getAllInEdges():
+            if in_edge.isDynamic():
+                block_node.createDynamicInEdge(in_edge.name, in_edge.connectorModel.name)
+            else:
+                block_node.createStaticInEdge(in_edge.timingVariable.name, in_edge.depth)
+        for out_edge in source_node.getAllOutEdges():
+            if out_edge.isDynamic():
+                block_node.createDynamicInEdge(out_edge.name, out_edge.connectorModel.name)
+            else:
+                block_node.createStaticInEdge(out_edge.timingVariable.name, out_edge.depth)
