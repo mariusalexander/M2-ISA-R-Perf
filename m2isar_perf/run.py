@@ -73,7 +73,7 @@ if args.block_transform:
     desc1 = BasicBlockDescription("combo_addi_add_add", 0x000003c4)
     desc1.addInstruction("addi", rd=15, rs1=15, imm=255)
     desc1.addInstruction("add" , rd=16, rs1=15, rs2=7)
-    desc1.addInstruction("add" , rd=17, rs1=15, rs2=16)
+    desc1.addInstruction("add" , rd=15, rs1=15, rs2=16)
     
     desc2 = BasicBlockDescription("combo_lw_addi_sw", 0x000003c4)
     desc2.addInstruction("lw"  , rd=3 , rs1=2)
