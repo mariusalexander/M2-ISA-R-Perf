@@ -177,7 +177,7 @@ class BlockSchedulingTransformer:
         register_mapping = { reg:None for reg in range(0, 32)}
         
         for block_node in block_function.nodes:
-            instr_index = __getInstructionIndexOfNode(block_node)
+            instr_index = self.__getInstructionIndexOfNode(block_node)
             instr = block_desc.instructions[instr_index]
 
             # find in- and out-edges to registers
@@ -222,7 +222,7 @@ class BlockSchedulingTransformer:
         print("  > Resolving branch prediciton...")
 
         for block_node in block_function.nodes:
-            instr_index = __getInstructionIndexOfNode(block_node)
+            instr_index = self.__getInstructionIndexOfNode(block_node)
 
             # find in- and out-edges to registers
             if instr_index != 0:
