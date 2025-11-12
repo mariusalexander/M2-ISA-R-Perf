@@ -70,15 +70,22 @@ if args.block_transform:
 
     print(args.block_transform)
 
-    desc1 = BasicBlockDescription("combo_addi_add_add", 0x000003c4)
-    desc1.addInstruction("addi", rd=15, rs1=15, imm=255)
-    desc1.addInstruction("add" , rd=16, rs1=15, rs2=7)
-    desc1.addInstruction("add" , rd=15, rs1=15, rs2=16)
-    
-    desc2 = BasicBlockDescription("combo_lw_addi_sw", 0x000003c4)
-    desc2.addInstruction("lw"  , rd=3 , rs1=2)
-    desc2.addInstruction("addi", rd=4, rs1=3, imm=16)
-    desc2.addInstruction("sw"  , rs1=3, rs2=4)
+    descs = []
+    #desc = BasicBlockDescription("combo_addi", 0x000003c4)
+    #desc.addInstruction("addi", rd=15, rs1=15, imm=255)
+    #descs.append(desc)
 
-    blockSchedule = BlockSchedulingTransformer().transform(schedModel, [desc1, desc2])
+    desc = BasicBlockDescription("combo_addi_add_add", 0x000003c4)
+    desc.addInstruction("addi", rd=15, rs1=15, imm=255)
+    desc.addInstruction("add" , rd=16, rs1=15, rs2=7)
+    desc.addInstruction("add" , rd=15, rs1=15, rs2=16)
+    descs.append(desc)
+    
+    desc = BasicBlockDescription("combo_lw_addi_sw", 0x000003c4)
+    desc.addInstruction("lw"  , rd=3 , rs1=2)
+    desc.addInstruction("addi", rd=4, rs1=3, imm=16)
+    desc.addInstruction("sw"  , rs1=3, rs2=4)
+    descs.append(desc)
+
+    blockSchedule = BlockSchedulingTransformer().transform(schedModel, descs)
     SchedulingModelViewer().execute(blockSchedule, outDir)

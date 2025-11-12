@@ -122,7 +122,7 @@ class BlockSchedulingTransformer:
             block_node = self.__findNode(block_function, block_idx, source_node)
             for source_dependency in source_node.inNodes:
                 dependency = self.__findNode(block_function, block_idx, source_dependency)
-                block_node.addInNode(dependency)
+                dependency.connectNode(block_node)
                 
     def __resolveTimingVariables(self, block_variant:Variant, block_function:SchedulingFunction):
         """
@@ -134,37 +134,52 @@ class BlockSchedulingTransformer:
         print("  > Resolving timing variables...")
 
         # dict denoting which node last wrote to a timing variable
-        timing_variable_mapping = { var:None for var in block_variant.timingVariables.keys()}
+        timing_variable_mappings = { var:[] for var in block_variant.timingVariables.keys()}
 
         # iterate over all nodes in order
         for block_node in block_function.nodes:
+            instr_idx = self.__getInstructionIndexOfNode(block_node)
+
             # find in- and out-edges to timing variables
             in_timing_vars_to_resolve  = [ edge for edge in block_node.inEdges  if not edge.dynamic and edge.timingVariable ]
             out_timing_vars_to_resolve = [ edge for edge in block_node.outEdges if not edge.dynamic and edge.timingVariable ]
 
-            # remove in- and out-edges to timing variables
+            # keep rest if in- and out-edges
             block_node.inEdges  = [ edge for edge in block_node.inEdges  if edge not in in_timing_vars_to_resolve  ]
             block_node.outEdges = [ edge for edge in block_node.outEdges if edge not in out_timing_vars_to_resolve ]
 
             for edge in in_timing_vars_to_resolve:
-                # TODO: support depth
-                last_node = timing_variable_mapping[edge.timingVariable.name]
-                # connect node to input timing variable if no other node wrote to it
+                # find node that matches depth
+                last_node = None
+                timing_variable = edge.timingVariable.name
+                #op(timing_variable_mappings, attr_pattern=r"(name|depth)", exclude=["inNodes", "outNodes", ""])
+                for [idx, node] in timing_variable_mappings[timing_variable]:
+                    if idx > (instr_idx - edge.depth):
+                        break
+                    last_node = node
+                # connect to input timing variable if no other node with sufficient depth wrote to it
                 if not last_node:
-                    block_node.inEdges.append(edge)
+                    print (f"   > Resolved timing variable: Node '{block_node.name}' links to '{timing_variable}'")
+                    block_node.inEdges.append(edge) # reappend edge
                     continue
-                # connect node to last node that wrote to timing variables
-                block_node.addInNode(last_node)
+                # connect to node with sufficient depth that wrote last to the timing variable
+                print (f"   > Resolved timing variable: Node '{block_node.name}' links to '{block_node.name}' ({timing_variable})")
+                last_node.connectNode(block_node)
 
             # update last node that wrote to timing variables 
             for edge in out_timing_vars_to_resolve:
-                timing_variable_mapping[edge.timingVariable.name] = block_node
+                print (f"   > Resolved timing variable: Node '{block_node.name}' sets '{timing_variable}'")
+                timing_variable_mappings[edge.timingVariable.name].append((instr_idx, block_node))
 
         # connect timing variable outputs 
-        for var in timing_variable_mapping:
-            block_node = timing_variable_mapping[var]
-            if block_node: 
-                block_node.createStaticOutEdge(var)
+        for timing_variable in timing_variable_mappings:
+            mappings = timing_variable_mappings[timing_variable]
+            if not len(mappings):
+                continue
+            [_, block_node] = mappings[-1]
+            if block_node:
+                print (f"   > Resolved timing variable: Node '{block_node.name}' outputs '{timing_variable}'")
+                block_node.createStaticOutEdge(timing_variable)
 
     def __resolveRegisters(self, block_variant:Variant, block_function:SchedulingFunction, block_desc:BasicBlockDescription):
         """
@@ -175,12 +190,15 @@ class BlockSchedulingTransformer:
         print("  > Resolving registers...")
 
         register_mapping = { reg:None for reg in range(0, 32)}
+        # TODO: resolve dynamically
+        target_register_name = 'Xd'
         
         for block_node in block_function.nodes:
             instr_index = self.__getInstructionIndexOfNode(block_node)
             instr = block_desc.instructions[instr_index]
 
             # find in- and out-edges to registers
+            # TODO: resolve hardcoded 'regModel' name dynamically
             in_registers_to_resolve  = [ edge for edge in block_node.inEdges  if edge.dynamic and edge.connectorModel.name == 'regModel' ]
             out_registers_to_resolve = [ edge for edge in block_node.outEdges if edge.dynamic and edge.connectorModel.name == 'regModel' ]
 
@@ -194,24 +212,26 @@ class BlockSchedulingTransformer:
                 last_node = register_mapping[register]
                 # connect node to register if no other node wrote to it
                 if not last_node:
-                    print (f"   > Resolved register: Node '{block_node.name}' uses 'r{instr[edge.name]} ({edge.name})' and links to register model")
-                    edge.name = f"r{register}({edge.name})"
-                    block_node.inEdges.append(edge)
+                    print (f"   > Resolved register: Node '{block_node.name}' uses 'r{register} ({edge.name})' from the register model")
+                    edge.name = f"r{register} ({edge.name})"
+                    block_node.inEdges.append(edge) # reappend edge
                     continue
                 # connect node to last node that wrote to register
-                print (f"   > Resolved register: Node '{block_node.name}' uses 'r{instr[edge.name]} ({edge.name})' and links to '{last_node.name}'")
-                block_node.addInNode(last_node)
+                print (f"   > Resolved register: Node '{block_node.name}' uses 'r{register} ({edge.name})' set by '{last_node.name}'")
+                last_node.connectNode(block_node)
 
             for edge in out_registers_to_resolve:
                 register = instr[edge.name]
-                print (f"   > Resolved register: Node '{block_node.name}' sets 'r{instr[edge.name]} ({edge.name})'")
+                print (f"   > Resolved register: Node '{block_node.name}' sets 'r{register} ({edge.name})'")
                 register_mapping[register] = block_node
-                
+        
         # connect register outputs 
         for register in register_mapping:
+            # TODO: no need to write r0 in RISC-V
             block_node = register_mapping[register]
             if block_node:
-                block_node.createDynamicOutEdge(f"r{register}({edge.name})", "regModel")
+                print (f"   > Resolved register: Node '{block_node.name}' outputs 'r{register} ({target_register_name})'")
+                block_node.createDynamicOutEdge(f"r{register} ({target_register_name})", "regModel")
 
     def __resolveBranchPrediction(self, block_variant:Variant, block_function:SchedulingFunction, block_desc:BasicBlockDescription):
         """ 
@@ -224,12 +244,13 @@ class BlockSchedulingTransformer:
         for block_node in block_function.nodes:
             instr_index = self.__getInstructionIndexOfNode(block_node)
 
-            # find in- and out-edges to registers
+            # TODO: is it sufficient to consider only first and last instruction?
+            # only keep edges if its either the first or last instruction
             if instr_index != 0:
-                in_bp_to_resolve   = [ edge for edge in block_node.inEdges  if edge.dynamic and edge.connectorModel.name == 'staBranchPredModel' ]
+                in_bp_to_resolve   = [ edge for edge in block_node.inEdges  if edge.dynamic and  "BranchPredModel" in edge.connectorModel.name ]
                 block_node.inEdges = [ edge for edge in block_node.inEdges  if edge not in in_bp_to_resolve ]
             if instr_index != len(block_desc.instructions) - 1:
-                out_bp_to_resolve   = [ edge for edge in block_node.outEdges if edge.dynamic and edge.connectorModel.name == 'staBranchPredModel' ]
+                out_bp_to_resolve   = [ edge for edge in block_node.outEdges if edge.dynamic and "BranchPredModel" in edge.connectorModel.name ]
                 block_node.outEdges = [ edge for edge in block_node.outEdges if edge not in out_bp_to_resolve ]
 
     def __getInstructionIndexOfNode(self, node) -> int:
