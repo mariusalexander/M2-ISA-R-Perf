@@ -61,7 +61,7 @@ class BlockSchedulingTransformer:
 
     def transform(self, sched_model:SchedulingModel, block_descriptions:List[BasicBlockDescription]) -> SchedulingModel:
         """
-        Transforms basic blocks (BB) into a block scheudling model. 
+        Transforms basic blocks (BB) into a block scheudling model.
         The model is a regular Scheduling Model which only contains scheduling function that describe each BB instead.
         """
         print ("-- TRANSMFORMER: BLOCK_SCHEDULING_MODEL --")
@@ -85,7 +85,7 @@ class BlockSchedulingTransformer:
         return blockSchedulingModel
 
     def __generateBlockSchedulingFunction(self, sched_variant:Variant, block_variant:Variant, block_desc:BasicBlockDescription):
-        """ 
+        """
         """
         print(f" > Generating block scheduling function for '{block_desc.name}'...")
 
@@ -101,15 +101,15 @@ class BlockSchedulingTransformer:
             sched_functions = sched_variant.getAllSchedulingFunctions()
             sched_function = self.__findSchedulingFunctionByName(sched_functions, block_instr.name)
             self.__appendSchedulingFunction(sched_function, block_variant, block_function, block_idx)
-            
+
         # Note: These can easily be merged, reducing times we loop over all nodes at cost of less readible code
         self.__resolveTimingVariables(block_variant, block_function)
         self.__resolveRegisters(block_variant, block_function, block_desc)
         self.__resolveBranchPrediction(block_variant, block_function, block_desc)
-        # TODO: resolve "Enter" nodes
-            
+        # TODO: resolve redundant "Enter" nodes
+
     def __appendSchedulingFunction(self, sched_function:SchedulingFunction, block_variant:Variant, block_function:SchedulingFunction, block_idx:int):
-        """ 
+        """
         Appends all nodes of `sched_function` to `block_function`.
         All Properties of each node are copied over.
         """
@@ -126,13 +126,13 @@ class BlockSchedulingTransformer:
             for source_dependency in source_node.inNodes:
                 dependency = self.__findNode(block_function, block_idx, source_dependency)
                 dependency.connectNode(block_node)
-                
+
     def __resolveTimingVariables(self, block_variant:Variant, block_function:SchedulingFunction):
         """
         Resolves nodes with static edges to timing variables.
         Nodes of consecutive instructions are interconnected in such a way that a node A writing to a timing variable
         is connected to a node B of another instruction. Only the nodes that first access and last write to a timing variable
-        reatin ingoing and outgoing edges to the corresponding timing variables.    
+        reatin ingoing and outgoing edges to the corresponding timing variables.
         """
         print("  > Resolving timing variables...")
 
@@ -162,7 +162,7 @@ class BlockSchedulingTransformer:
                     last_node = node
                 # connect to input timing variable if no other node with sufficient depth wrote to it
                 if not last_node:
-                    print (f"   > Resolved timing variable: Node '{block_node.name}' links to '{timing_variable}'")
+                    #print (f"   > Resolved timing variable: Node '{block_node.name}' links to '{timing_variable}'")
                     block_node.inEdges.append(edge) # reappend edge
                     continue
                 # connect to node with sufficient depth that wrote last to the timing variable
@@ -172,7 +172,7 @@ class BlockSchedulingTransformer:
             # update last node that wrote to timing variables
             for edge in out_timing_vars_to_resolve:
                 # append node at current "depth"
-                print (f"   > Resolved timing variable: Node '{block_node.name}' sets '{timing_variable}'")
+                #print (f"   > Resolved timing variable: Node '{block_node.name}' sets '{timing_variable}'")
                 timing_variable_mappings[edge.timingVariable.name].append((instr_idx, block_node))
 
         # connect timing variable outputs
@@ -189,7 +189,7 @@ class BlockSchedulingTransformer:
         """
         Resolves nodes with dynamic edges to registers.
         Nodes of consecutive instructions are interconnected in such a way that a node A writing to a register
-        is connected to a node B of another instruction that uses the same register as an input. Only the nodes 
+        is connected to a node B of another instruction that uses the same register as an input. Only the nodes
         that first read or write last to a register retain the corresponding ingoing and outgoing edges to the register model. """
         print("  > Resolving registers...")
 
@@ -202,7 +202,7 @@ class BlockSchedulingTransformer:
             "regModel" : "Xd",
             "clobberModel": "Cb_in",
         }
-        
+
         for block_node in block_function.nodes:
             instr_index = self.__getInstructionIndexOfNode(block_node)
             instr = block_desc.instructions[instr_index]
@@ -234,8 +234,8 @@ class BlockSchedulingTransformer:
                 register = instr[edge.name]
                 print (f"   > Resolved register: Node '{block_node.name}' sets 'r{register} ({edge.name})'")
                 register_mapping[edge.connectorModel.name][register] = block_node, edge
-        
-        # connect register outputs 
+
+        # connect register outputs
         for model in register_models:
             mapping = register_mapping[model]
             for register in mapping:
@@ -247,9 +247,9 @@ class BlockSchedulingTransformer:
                     block_node.createDynamicOutEdge(f"r{register} ({target_register})", model)
 
     def __resolveBranchPrediction(self, block_variant:Variant, block_function:SchedulingFunction, block_desc:BasicBlockDescription):
-        """ 
-        Resolves nodes with edges to branch prediction connector models. 
-        Only the first instruction retains ingoing edges and the last instruction contains outgoing edges 
+        """
+        Resolves nodes with edges to branch prediction connector models.
+        Only the first instruction retains ingoing edges and the last instruction contains outgoing edges
         to branch prediction connector models.
         """
         print("  > Resolving branch prediciton...")
@@ -276,10 +276,10 @@ class BlockSchedulingTransformer:
 
     def __findSchedulingFunctionByName(self, elements, instr_name) -> SchedulingFunction :
         return self.__findElementByName(elements, instr_name, f"BlockSchedulingTransformer: No scheduling instructions found for instruction '{instr_name}'")
-    
+
     def __findNode(self, block_function:SchedulingFunction, block_idx:int, source_node:Node) -> Node :
         return self.__findElementByName(block_function.nodes, f"{source_node.name}_{block_idx}")
-    
+
     def __copyNode(self, source_node:Node, block_node:Node):
         # apply delay
         block_node.delay = source_node.delay
@@ -291,7 +291,7 @@ class BlockSchedulingTransformer:
         for in_edge in source_node.getAllInEdges():
             if in_edge.isDynamic():
                 assert in_edge.connectorModel, "Expected dynamic edges to connector models only!"
-                assert in_edge.connectorModel.name in supported_models, f"Connector model '{in_edge.connectorModel.name}' is not yet supported, supported are: {supported_models}" 
+                assert in_edge.connectorModel.name in supported_models, f"Connector model '{in_edge.connectorModel.name}' is not yet supported, supported are: {supported_models}"
                 block_node.createDynamicInEdge(in_edge.name, in_edge.connectorModel.name)
             else:
                 assert in_edge.timingVariable, "Expected static edges to timing variables only!"
@@ -301,7 +301,7 @@ class BlockSchedulingTransformer:
         for out_edge in source_node.getAllOutEdges():
             if out_edge.isDynamic():
                 assert out_edge.connectorModel, "Expected dynamc edges to connector models only!"
-                assert out_edge.connectorModel.name in supported_models, f"Connector model '{out_edge.connectorModel.name}' ist not yet supported, supported are: {supported_models}" 
+                assert out_edge.connectorModel.name in supported_models, f"Connector model '{out_edge.connectorModel.name}' ist not yet supported, supported are: {supported_models}"
                 block_node.createDynamicOutEdge(out_edge.name, out_edge.connectorModel.name)
             else:
                 assert out_edge.timingVariable, "Expected static edges only to timing variables only!"

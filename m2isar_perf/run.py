@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 
-# 
+#
 # Copyright 2022 Chair of EDA, Technical University of Munich
-# 
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-# 
+#
 #       http://www.apache.org/licenses/LICENSE-2.0
-# 
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -24,12 +24,12 @@ from objprint import op
 
 from common import common as cf
 
-from frontends.corePerfDsl import api as Frontend # TODO: Change from API to Class format 
+from frontends.corePerfDsl import api as Frontend # TODO: Change from API to Class format
 
 from meta_models.scheduling_model.SchedulingTransformer import SchedulingTransformer
 from meta_models.block_scheduling_model.BlockSchedulingTransformer import BlockSchedulingTransformer, BasicBlockDescription
 
-from backends.monitor_extractor import api as backend_monitor_extractor # TODO: Change from API to Class format 
+from backends.monitor_extractor import api as backend_monitor_extractor # TODO: Change from API to Class format
 from backends.structure_viewer.StructuralModelViewer import StructuralModelViewer
 from backends.schedule_viewer.SchedulingModelViewer import SchedulingModelViewer
 from backends.estimator_generator.EstimatorGenerator import EstimatorGenerator
@@ -81,7 +81,7 @@ if args.block_transform:
     desc.addInstruction("add" , rd=16, rs1=15, rs2=7)
     desc.addInstruction("add" , rd=15, rs1=15, rs2=16)
     descs.append(desc)
-    
+
     desc = BasicBlockDescription("combo_lw_addi_sw", 0x000003c4)
     desc.addInstruction("lw"  , rd=3 , rs1=2)
     desc.addInstruction("addi", rd=4, rs1=3, imm=16)
