@@ -25,7 +25,7 @@ class SchedulingModelViewer:
     def __init__(self):
         self.tempDirBase = pathlib.Path(__file__).parent / "temp"
 
-    def execute(self, model_, outDir_):
+    def execute(self, model_, outDir_, cluster=False):
 
         print()
         print("-- BACKEND: SCHEDULE_VIEWER --")
@@ -78,14 +78,13 @@ class SchedulingModelViewer:
                         for conModel_i in variant_i.getAllConnectorModels():
                             bottom.node(self.__connectorModelOut(conModel_i.name), label=conModel_i.name, shape='box')
                     
-                    use_clusters = schedFunc_i.identifier >= 1024
-
                     # Make nodes for scheduling function nodes
-                    if use_clusters:
+                    if cluster:
                         clusters = {}
                         for node_i in func_i.getAllNodes():
                             instr_idx = int(node_i.name[node_i.name.rindex("_") + 1:])
                             if instr_idx not in clusters:
+                                # clusters are denoted by a name starting with 'cluster_'
                                 subgraph = graphviz.Digraph(name=f"cluster_{instr_idx}")
                                 subgraph.attr(style="filled", color="lightgrey", label=f"instruction no. {instr_idx}")
                                 clusters[instr_idx] = subgraph
@@ -93,6 +92,7 @@ class SchedulingModelViewer:
                             else:
                                 subgraph = clusters[instr_idx]
                                 self.__generateNode(subgraph, node_i)
+                        # once all clusters are filled append as subgraph
                         for instr_idx in clusters:
                             subgraph = clusters[instr_idx]
                             dotGraph.subgraph(subgraph)
