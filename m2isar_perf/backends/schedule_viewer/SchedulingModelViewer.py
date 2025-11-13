@@ -77,32 +77,29 @@ class SchedulingModelViewer:
                         # TODO: Show all connector models, or just the onces used by this scheduling function? 
                         for conModel_i in variant_i.getAllConnectorModels():
                             bottom.node(self.__connectorModelOut(conModel_i.name), label=conModel_i.name, shape='box')
-                            
-                    # Make nodes for scheduling function nodes
-                    for node_i in func_i.getAllNodes():
+                    
+                    use_clusters = schedFunc_i.identifier >= 1024
 
-                        dotGraph.node(self.__scheduleNode(node_i.name), label=node_i.name, shape='ellipse')
-                        # Connect resource model
-                        if node_i.hasDynamicDelay():
-                            resModelName = node_i.getResourceModel().name
-                            dotGraph.node(self.__resourceModel(resModelName), label=resModelName, shape='box')
-                            dotGraph.edge(self.__resourceModel(resModelName), self.__scheduleNode(node_i.name))
-                        # Connect to previous nodes
-                        for prevNode_i in node_i.getAllInNodes():
-                            dotGraph.edge(self.__scheduleNode(prevNode_i.name), self.__scheduleNode(node_i.name))
-                        # Connect in-edges
-                        for edge_i in node_i.getAllInEdges():
-                            if edge_i.isDynamic():
-                                dotGraph.edge(self.__connectorModelIn(edge_i.getConnectorModel().name), self.__scheduleNode(node_i.name), label=edge_i.name, color='blue')
+                    # Make nodes for scheduling function nodes
+                    if use_clusters:
+                        clusters = {}
+                        for node_i in func_i.getAllNodes():
+                            instr_idx = int(node_i.name[node_i.name.rindex("_") + 1:])
+                            if instr_idx not in clusters:
+                                subgraph = graphviz.Digraph(name=f"cluster_{instr_idx}")
+                                subgraph.attr(style="filled", color="lightgrey", label=f"instruction no. {instr_idx}")
+                                clusters[instr_idx] = subgraph
+                                self.__generateNode(subgraph, node_i)
                             else:
-                                dotGraph.edge(self.__timingVariableIn(edge_i.getTimingVariable().name), self.__scheduleNode(node_i.name), label=("[" + str(edge_i.depth) + "]"), color='red') # Implicit "cast" to StaticEdge
-                        # Connect out-edges
-                        for edge_i in node_i.getAllOutEdges():
-                            if edge_i.isDynamic():
-                                dotGraph.edge(self.__scheduleNode(node_i.name), self.__connectorModelOut(edge_i.getConnectorModel().name), label=edge_i.name, color='blue')
-                            else:
-                                dotGraph.edge(self.__scheduleNode(node_i.name), self.__timingVariableOut(edge_i.getTimingVariable().name), color='red')
-                                
+                                subgraph = clusters[instr_idx]
+                                self.__generateNode(subgraph, node_i)
+                        for instr_idx in clusters:
+                            subgraph = clusters[instr_idx]
+                            dotGraph.subgraph(subgraph)
+                    else:
+                        for node_i in func_i.getAllNodes():
+                            self.__generateNode(dotGraph, node_i)
+                    
                     #dotGraph.render('graph', format='png', view=True)
 
                     tempFile = tempDir / (func_i.name + ".dot")
@@ -113,7 +110,29 @@ class SchedulingModelViewer:
                     os.system(f"dot -Tpdf {func_i.name}.dot -o {func_i.name}.pdf")
                     os.replace(f"{str(tempDir)}/{func_i.name}.pdf", f"{str(outDir / func_i.name)}/{func_i.name}_schedulingFunction.pdf")
                     
-                    
+    def __generateNode(self, dotGraph, node_i):
+        dotGraph.node(self.__scheduleNode(node_i.name), label=node_i.name, shape='ellipse')
+        # Connect resource model
+        if node_i.hasDynamicDelay():
+            resModelName = node_i.getResourceModel().name
+            dotGraph.node(self.__resourceModel(resModelName), label=resModelName, shape='box')
+            dotGraph.edge(self.__resourceModel(resModelName), self.__scheduleNode(node_i.name))
+        # Connect to previous nodes
+        for prevNode_i in node_i.getAllInNodes():
+            dotGraph.edge(self.__scheduleNode(prevNode_i.name), self.__scheduleNode(node_i.name))
+        # Connect in-edges
+        for edge_i in node_i.getAllInEdges():
+            if edge_i.isDynamic():
+                dotGraph.edge(self.__connectorModelIn(edge_i.getConnectorModel().name), self.__scheduleNode(node_i.name), label=edge_i.name, color='blue')
+            else:
+                dotGraph.edge(self.__timingVariableIn(edge_i.getTimingVariable().name), self.__scheduleNode(node_i.name), label=("[" + str(edge_i.depth) + "]"), color='red') # Implicit "cast" to StaticEdge
+        # Connect out-edges
+        for edge_i in node_i.getAllOutEdges():
+            if edge_i.isDynamic():
+                dotGraph.edge(self.__scheduleNode(node_i.name), self.__connectorModelOut(edge_i.getConnectorModel().name), label=edge_i.name, color='blue')
+            else:
+                dotGraph.edge(self.__scheduleNode(node_i.name), self.__timingVariableOut(edge_i.getTimingVariable().name), color='red')
+
     def __timingVariableIn(self, name_):
         return ("tvi_" + name_)
 

@@ -54,7 +54,7 @@ class BlockSchedulingTransformer:
     """Block Scheduling Transformer"""
 
     def __init__(self):
-        self.id_=0
+        self.id_=1024
 
     def transform(self, sched_model:SchedulingModel, block_descriptions:List[BasicBlockDescription]) -> SchedulingModel:
         """
