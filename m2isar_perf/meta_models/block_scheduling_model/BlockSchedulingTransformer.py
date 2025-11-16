@@ -111,7 +111,6 @@ class BlockSchedulingTransformer:
         self.__resolveBranchPrediction(block_variant, block_function, block_desc)
         # TODO: resolve redundant "Enter" nodes
 
-        #block_function.
 
     def __appendSchedulingFunction(self, sched_function:SchedulingFunction, block_variant:Variant, block_function:SchedulingFunction, block_idx:int):
         """
@@ -228,7 +227,7 @@ class BlockSchedulingTransformer:
                 # connect node to register if no other node wrote to it
                 if not last_node:
                     print (f"   > Resolved register: Node '{block_node.name}' uses 'r{register} ({edge.name})'")
-                    edge.name = f"r{register} ({edge.name})"
+                    #edge.name = f"r{register} ({edge.name})"
                     block_node.inEdges.append(edge) # reappend edge
                     continue
                 # connect node to last node that wrote to register
@@ -249,7 +248,8 @@ class BlockSchedulingTransformer:
                 if block_node:
                     target_register = target_registers[model]
                     print (f"   > Resolved register: Node '{block_node.name}' outputs 'r{register} ({target_register})' ({model})")
-                    block_node.createDynamicOutEdge(f"r{register} ({target_register})", model)
+                    #block_node.createDynamicOutEdge(f"r{register} ({target_register})", model)
+                    block_node.createDynamicOutEdge(target_register, model)
 
     def __resolveBranchPrediction(self, block_variant:Variant, block_function:SchedulingFunction, block_desc:BasicBlockDescription):
         """

@@ -82,7 +82,8 @@ class SchedulingModelViewer:
                     if cluster:
                         clusters = {}
                         for node_i in func_i.getAllNodes():
-                            instr_idx = int(node_i.name[node_i.name.rindex("_") + 1:])
+                            sub_str = node_i.name[node_i.name.rindex("_") + 1:] if '_' in node_i.name else node_i.name
+                            instr_idx = int(sub_str) if sub_str.isdigit() else 0
                             if instr_idx not in clusters:
                                 # clusters are denoted by a name starting with 'cluster_'
                                 subgraph = graphviz.Digraph(name=f"cluster_{instr_idx}")
