@@ -37,13 +37,13 @@ class BasicBlockDescription:
 
     def addInstruction(self, instr_name, rd=None, rs1=None, rs2=None, imm=None):
         instr = {
-            "address": self.starting_address + 4*len(self.instructions),
+            "address": self.starting_address + (4 * len(self.instructions)),
             "name": instr_name,
             "rd"  : rd,
             "rs1" : rs1,
             "rs2" : rs2,
             "imm" : imm,
-            # RV32 specific
+            # RV32 and CVA6 specific
             "Xd"  : rd,
             "Xa"  : rs1,
             "Xb"  : rs2,
@@ -102,11 +102,16 @@ class BlockSchedulingTransformer:
             sched_function = self.__findSchedulingFunctionByName(sched_functions, block_instr.name)
             self.__appendSchedulingFunction(sched_function, block_variant, block_function, block_idx)
 
+            if block_idx == 0 and sched_function.getRootNode():
+                block_function.setRootNode(self.__findNode(block_function, block_idx, sched_function.getRootNode()))
+
         # Note: These can easily be merged, reducing times we loop over all nodes at cost of less readible code
         self.__resolveTimingVariables(block_variant, block_function)
         self.__resolveRegisters(block_variant, block_function, block_desc)
         self.__resolveBranchPrediction(block_variant, block_function, block_desc)
         # TODO: resolve redundant "Enter" nodes
+
+        #block_function.
 
     def __appendSchedulingFunction(self, sched_function:SchedulingFunction, block_variant:Variant, block_function:SchedulingFunction, block_idx:int):
         """

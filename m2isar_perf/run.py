@@ -97,3 +97,4 @@ if args.block_transform:
 
     blockSchedule = BlockSchedulingTransformer().transform(schedModel, descs)
     SchedulingModelViewer().execute(blockSchedule, outDir, cluster=False)
+    EstimatorGenerator().execute(blockSchedule, outDir)
