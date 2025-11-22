@@ -70,12 +70,48 @@ if args.block_transform:
 
     print(args.block_transform)
 
-    descs = []
-    #"""
-    #desc = BasicBlockDescription("combo_addi", 0x000003c4)
-    #desc.addInstruction("addi", rd=15, rs1=15, imm=255)
-    #descs.append(desc)
+    r0 = 0
+    sp = 2
+    s0 = 8
+    s1 = 9
+    s2 = 18
+    s3 = 19
+    s4 = 20
+    s5 = 21
+    s6 = 22
+    s7 = 23
+    a0 = 10
+    a1 = 11
+    a2 = 12
+    a3 = 13
+    a4 = 14
+    a5 = 15
+    a6 = 16
+    a7 = 17
+    t0 = 5
+    t1 = 6
+    t2 = 7
+    t3 = 28
+    t4 = 29
+    t5 = 30
+    t6 = 31
 
+    descs = []
+    desc = BasicBlockDescription("combo_bb_1", 0x100047c)
+    desc.addInstruction("addi", rd=sp , rs1=sp, imm=(-0x1b0))
+    desc.addInstruction("sw"  , rs1=s0, rs2=sp)
+    desc.addInstruction("sw"  , rs1=s1, rs2=sp)
+    desc.addInstruction("sw"  , rs1=s2, rs2=sp)
+    desc.addInstruction("sw"  , rs1=s3, rs2=sp)
+    desc.addInstruction("sw"  , rs1=s4, rs2=sp)
+    desc.addInstruction("sw"  , rs1=s5, rs2=sp)
+    desc.addInstruction("sw"  , rs1=s6, rs2=sp)
+    desc.addInstruction("sw"  , rs1=s7, rs2=sp)
+    desc.addInstruction("lui" , rd=a0 , imm=(0x1800))
+    desc.addInstruction("addi", rd=a0 , rs1=a0, imm=(0x760))
+    desc.addInstruction("bge" , rs1=r0, rs2=a1, imm=(0x1000644)) # implements blez: 0 => a1 <--> a1 <= 0
+    descs.append(desc)
+    
     desc = BasicBlockDescription("combo_addi_add_add", 0x000003c4)
     desc.addInstruction("addi", rd=15, rs1=15, imm=255)
     desc.addInstruction("add" , rd=16, rs1=15, rs2=7)
@@ -87,13 +123,6 @@ if args.block_transform:
     desc.addInstruction("addi", rd=4, rs1=3, imm=16)
     desc.addInstruction("sw"  , rs1=3, rs2=4)
     descs.append(desc)
-    """
-    desc = BasicBlockDescription("combo_lw_addi_sw", 0x000003c4)
-    desc.addInstruction("lw"  , rd=3 , rs1=2)
-    desc.addInstruction("addi", rd=4, rs1=3, imm=16)
-    desc.addInstruction("sw"  , rs1=3, rs2=4)
-    descs.append(desc)
-    """
 
     blockSchedule = BlockSchedulingTransformer().transform(schedModel, descs)
     SchedulingModelViewer().execute(blockSchedule, outDir, cluster=False)
