@@ -14,6 +14,7 @@
 # limitations under the License.
 #
 
+# TODO: remove me, for debugging purpose only
 from objprint import op
 
 import copy
@@ -27,6 +28,43 @@ class dotdict(dict):
     __getattr__ = dict.get
     __setattr__ = dict.__setitem__
     __delattr__ = dict.__delitem__
+
+class AbiRegisters:
+    """Maps RISC-V ABI registers onto actual register numbers."""
+
+    def __init__(self):
+        self.zero = 0
+        self.ra   = 2
+        self.sp   = 2
+        self.gp   = 3
+        self.tp   = 4
+        self.t0   = 5
+        self.t1   = 6
+        self.t2   = 7
+        self.s0   = 8
+        self.s1   = 9
+        self.a0   = 10
+        self.a1   = 11
+        self.a2   = 12
+        self.a3   = 13
+        self.a4   = 14
+        self.a5   = 15
+        self.a6   = 16
+        self.a7   = 17
+        self.s2   = 18
+        self.s3   = 19
+        self.s4   = 20
+        self.s5   = 21
+        self.s6   = 22
+        self.s7   = 23
+        self.s8   = 24
+        self.s9   = 25
+        self.s10  = 26
+        self.s11  = 27
+        self.t3   = 28
+        self.t4   = 29
+        self.t5   = 30
+        self.t6   = 31
 
 class BasicBlockDescription:
     """Denotes a basic block and its instructions."""
@@ -60,7 +98,7 @@ class BlockSchedulingTransformer:
     def __init__(self):
         self._id=1024
         # whether to use more descriptive names for edges to registers, like 'r2 (Xa)' instead of 'Xa' 
-        self._rename_edges = False 
+        self._rename_edges = True 
         self._register_count   = 32
         self._register_models  = ["regModel", "clobberModel"]
         self._target_register_mapping = {
