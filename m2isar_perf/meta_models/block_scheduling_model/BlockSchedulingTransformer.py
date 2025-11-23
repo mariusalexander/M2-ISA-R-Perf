@@ -59,6 +59,8 @@ class BlockSchedulingTransformer:
 
     def __init__(self):
         self._id=1024
+        # whether to use more descriptive names for edges to registers, like 'r2 (Xa)' instead of 'Xa' 
+        self._rename_edges = False 
         self._register_count   = 32
         self._register_models  = ["regModel", "clobberModel"]
         self._target_register_mapping = {
@@ -125,6 +127,7 @@ class BlockSchedulingTransformer:
 
             # find instruction of BB in base scheduling model and append nodes to block function
             sched_function = self.__findSchedulingFunctionByName(sched_functions, block_instr.name)
+            print(sched_function.identifier)
             self.__appendSchedulingFunction(sched_function, block_function, block_idx)
             self.__resolveInternalEdges(sched_function, block_function, block_idx, mappings)
 
@@ -241,7 +244,7 @@ class BlockSchedulingTransformer:
         last_node  = registers[registerNo]
         if not last_node:
             print (f"   > Resolved {model}: Node '{block_node.name}' uses 'r{registerNo} ({edge.name})'")
-            edge_name = f"r{registerNo} ({edge.name})"
+            edge_name = f"r{registerNo} ({edge.name})" if self._rename_edges else edge.name
             block_node.createDynamicInEdge(edge_name, model) # append edge
             return
         print (f"   > Resolved {model}: Node '{block_node.name}' uses 'r{registerNo} ({edge.name})' set by '{last_node.name}'")
@@ -259,13 +262,12 @@ class BlockSchedulingTransformer:
         for model in self._register_models:
             mapping = mappings[model]
             for registerNo in mapping:
-                if registerNo == 0:
-                    continue
                 block_node = mapping[registerNo]
+                assert not (block_node and registerNo == 0), f"r0 (zero) should not be used set!"
                 if block_node:
                     target_register = self._target_register_mapping[model]
                     print (f"   > Resolved register: Node '{block_node.name}' outputs 'r{registerNo} ({target_register})' ({model})")
-                    edge_name = f"r{registerNo} ({target_register})"
+                    edge_name = f"r{registerNo} ({target_register})" if self._rename_edges else target_register
                     block_node.createDynamicOutEdge(edge_name, model)
 
     def __resolveBranchPredictionInEdge(self, block_node:Node, edge:StaticEdge, block_idx:int, model:str):

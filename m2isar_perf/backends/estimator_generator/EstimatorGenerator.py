@@ -94,7 +94,8 @@ class EstimatorGenerator:
                 func_(curNode, inputDict_)
 
                 for nxtNode_i in curNode.getAllOutNodes():
-                    nodeQueue.append(nxtNode_i)
+                    if all((predecessor in visitedNodes) for predecessor in nxtNode_i.getAllInNodes()):
+                        nodeQueue.append(nxtNode_i)
                 
     def __generateNodeCode(self, node_, inputDict_):
         """
