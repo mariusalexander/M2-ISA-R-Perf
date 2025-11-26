@@ -16,6 +16,7 @@
 
 # TODO: remove me, for debugging purpose only
 from objprint import op
+from collections import deque
 
 import copy
 from typing import List, Dict
@@ -107,6 +108,8 @@ class BlockSchedulingTransformer:
         }
         self._branch_prediction_models  = ["staBranchPredModel", "dynBranchPredModel"]
         self._supported_models = self._register_models + self._branch_prediction_models
+
+        self._dummies = {}
         
     def transform(self, sched_model:SchedulingModel, block_descriptions:List[BasicBlockDescription]) -> SchedulingModel:
         """
@@ -129,10 +132,8 @@ class BlockSchedulingTransformer:
 
             # iterate over each BB
             for block_desc in block_descriptions:
-                self._block_desc = block_desc
                 self.__generateBlockSchedulingFunction(sched_variant, block_variant, block_desc)
 
-        self._block_desc = None
         return blockSchedulingModel
 
     def __generateBlockSchedulingFunction(self, sched_variant:Variant, block_variant:Variant, block_desc:BasicBlockDescription):
@@ -145,13 +146,11 @@ class BlockSchedulingTransformer:
         self._id += 1
 
         # helper struct to resolve external and internal edges 
-        mappings = dotdict({
-            # mappings for timing variables
-            "timingVariables": {
-                timing_var.name: [ None for _ in range(timing_var.getNumElements()) ] 
-                    for timing_var in block_variant.getAllTimingVariables()
-            }
-        })
+        mappings = dotdict()
+        # mappings for timing variables
+        mappings.timingVariables = {}
+        for timing_var in block_variant.getAllTimingVariables():
+            mappings.timingVariables[timing_var.name] = [ None for _ in range(0, timing_var.getNumElements()) ]
         # mappings for register models
         for reg_model in self._register_models:
             mappings[reg_model] = { reg:None for reg in range(0, self._register_count) }
@@ -161,86 +160,95 @@ class BlockSchedulingTransformer:
         # iterate over each instruction in the BB
         for block_idx in range(0, len(block_desc.instructions)):
             block_instr = block_desc.instructions[block_idx]
-            print(f"  > Appending instruction '{block_instr.name}'...")
 
             # find instruction of BB in base scheduling model and append nodes to block function
             sched_function = self.__findSchedulingFunctionByName(sched_functions, block_instr.name)
-            print(sched_function.identifier)
-            self.__appendSchedulingFunction(sched_function, block_function, block_idx)
-            self.__resolveInternalEdges(sched_function, block_function, block_idx, mappings)
+            self.__appendSchedulingFunction(sched_function, block_function, block_desc, block_idx, mappings)
 
-        op("[FINAL] Timing Variables:", { var:[ n.name if n else None for n in mappings.timingVariables[var] ] for var in mappings.timingVariables})
-        op("[FINAL] Register Mapping:", { reg: mappings.regModel[reg].name if mappings.regModel[reg] else None for reg in mappings.regModel if mappings.regModel[reg]})
-        op("[FINAL] Clobber Mapping: ", { reg: mappings.clobberModel[reg].name if mappings.clobberModel[reg] else None for reg in mappings.clobberModel if mappings.clobberModel[reg]})
+            #op("[FINAL] Timing Variables:", { var:[ n.name if n else None for n in mappings.timingVariables[var] ] for var in mappings.timingVariables})
+            #op("[FINAL] Register Mapping:", { reg: mappings.regModel[reg].name if mappings.regModel[reg] else None for reg in mappings.regModel if mappings.regModel[reg]})
+            #op("[FINAL] Clobber Mapping: ", { reg: mappings.clobberModel[reg].name if mappings.clobberModel[reg] else None for reg in mappings.clobberModel if mappings.clobberModel[reg]})
 
         self.__resolveOutgoingEdges(block_function, mappings)
 
-    def __appendSchedulingFunction(self, sched_function:SchedulingFunction, block_function:SchedulingFunction, block_idx:int):
+    def __appendSchedulingFunction(self, sched_function:SchedulingFunction, block_function:SchedulingFunction, block_desc:BasicBlockDescription, block_idx:int, mappings):
         """
-        Appends all nodes of `sched_function` to `block_function`.
-        All properties of each node are copied over.
         """
-        # add all nodes of instruction to the block schedule
-        for source_node in sched_function.nodes:
-            block_node = block_function.createNode(f"{source_node.name}_{block_idx}")
-            # apply properties
+        block_instr = block_desc.instructions[block_idx]
+        print(f"  > Appending instruction '{block_instr.name}' (id: {sched_function.identifier})...")
+
+        root_node = sched_function.getRootNode()
+        assert root_node
+
+        visited   = []
+        queue     = deque([root_node])
+
+        while queue:
+            source_node = queue.popleft()
+            assert source_node not in visited
+            visited.append(source_node)
+            # create node
+            block_node  = block_function.createNode(f"{source_node.name}_{block_idx}")
             self.__copyNode(source_node, block_node)
-
-        # once all nodes are appended, we can setup in/out-nodes for each node
-        for source_node in sched_function.nodes:
-            block_node = self.__findNode(block_function, block_idx, source_node)
-            for source_dependency in source_node.inNodes:
-                dependency = self.__findNode(block_function, block_idx, source_dependency)
+            # setup ingoing connections
+            for in_node_i in source_node.getAllInNodes():
+                dependency = self.__findNode(block_function, block_idx, in_node_i)
                 dependency.connectNode(block_node)
+            # resolve edges
+            self.__resolveInternalEdges(source_node, block_node, block_desc, block_idx, mappings)
+            # iterate over children if all dependencies have been met
+            for next_node_i in source_node.getAllOutNodes():
+                if all((predecessor in reversed(visited)) for predecessor in next_node_i.getAllInNodes()):
+                    queue.append(next_node_i)
 
-        # setup root and end node respectively
-        if block_idx == 0 and sched_function.getRootNode():
-            root_node = self.__findNode(block_function, block_idx, sched_function.getRootNode())
-            print(f"  > Setting root node: '{root_node.name}'")
-            block_function.setRootNode(root_node)
+        # make sure all nodes are processed
+        assert all([ self.__findNode(block_function, block_idx, n) for n in sched_function.getAllNodes() ])
+
+        # setup root node respectively
+        root_node = self.__findNode(block_function, block_idx, sched_function.getRootNode())
+        print(f"  > Setting root node: '{root_node.name}'")
+        block_function.setRootNode(root_node)
             
         assert not sched_function.endNode, "It is assumed, that `SchedulingFunction.endNode` is not used"
 
-    def __resolveInternalEdges(self, sched_function:SchedulingFunction, block_function:SchedulingFunction, block_idx:int, mappings):
-        for source_node in sched_function.nodes:
-            block_node = self.__findNode(block_function, block_idx, source_node)
-            # in edges
-            for edge in source_node.inEdges:
-                if not edge.isDynamic():
-                    # static edge
-                    assert edge.timingVariable, "Expected static edges to timing variables only!"
-                    self.__resolveTimingVariableInEdge(block_node, edge, mappings.timingVariables)
-                    continue
-                # dynamic edge
-                assert edge.connectorModel, "Expected dynamic edges to connector models only!"
-                connector_model = edge.connectorModel.name
-                if connector_model in self._register_models:
-                    self.__resolveRegisterInEdge(block_node, edge, block_idx, mappings, connector_model)
-                    continue
-                if connector_model in self._branch_prediction_models:
-                    self.__resolveBranchPredictionInEdge(block_node, edge, block_idx, connector_model)
-                    continue
-                assert False, f"Ingoing edge to '{connector_model}' is not handeld!"
-            # out edges
-            for edge in source_node.outEdges:
-                if not edge.isDynamic():
-                    # static edge
-                    assert edge.timingVariable, "Expected static edges to timing variables only!"
-                    self.__resolveTimingVariableOutEdge(block_node, edge, mappings.timingVariables)
-                    continue
-                # dynamic edge
-                assert edge.connectorModel, "Expected dynamic edges to connector models only!"
-                connector_model = edge.connectorModel.name
-                if connector_model in self._register_models:
-                    self.__resolveRegisterOutEdge(block_node, edge, block_idx, mappings, connector_model)
-                    continue
-                if connector_model in self._branch_prediction_models:
-                    self.__resolveBranchPredictionOutEdge(block_node, edge, block_idx, connector_model)
-                    continue
-                assert False, f"Outgoing edge to '{connector_model}' is not handeld!"
+    def __resolveInternalEdges(self, source_node:Node, block_node:Node, block_desc:BasicBlockDescription, block_idx:int, mappings):
+        # in edges
+        for edge in source_node.inEdges:
+            if not edge.isDynamic():
+                # static edge
+                assert edge.timingVariable, "Expected static edges to timing variables only!"
+                self.__resolveTimingVariableInEdge(block_node, edge, mappings.timingVariables)
+                continue
+            # dynamic edge
+            assert edge.connectorModel, "Expected dynamic edges to connector models only!"
+            connector_model = edge.connectorModel.name
+            if connector_model in self._register_models:
+                self.__resolveRegisterInEdge(block_node, edge, block_desc, block_idx, mappings, connector_model)
+                continue
+            if connector_model in self._branch_prediction_models:
+                self.__resolveBranchPredictionInEdge(block_node, edge, block_idx, connector_model)
+                continue
+            raise RuntimeError(f"Ingoing edge to '{connector_model}' is not handeld! Supported are {", ".join(self._supported_models)}")
+        # out edges
+        for edge in source_node.outEdges:
+            if not edge.isDynamic():
+                # static edge
+                assert edge.timingVariable, "Expected static edges to timing variables only!"
+                self.__resolveTimingVariableOutEdge(block_node, edge, block_idx, mappings.timingVariables)
+                continue
+            # dynamic edge
+            assert edge.connectorModel, "Expected dynamic edges to connector models only!"
+            connector_model = edge.connectorModel.name
+            if connector_model in self._register_models:
+                self.__resolveRegisterOutEdge(block_node, edge, block_desc, block_idx, mappings, connector_model)
+                continue
+            if connector_model in self._branch_prediction_models:
+                self.__resolveBranchPredictionOutEdge(block_node, edge, block_desc, block_idx, connector_model)
+                continue
+            raise RuntimeError(f"Outgoing edge to '{connector_model}' is not handeld! Supported are {", ".join(self._supported_models)}")
 
     def __resolveOutgoingEdges(self, block_function:SchedulingFunction, mappings):
-        self.__resolveOutgoingTimingVariables(mappings)
+        self.__resolveOutgoingTimingVariables(block_function, mappings)
         self.__resolveOutgoingRegisters(mappings)
 
     def __resolveTimingVariableInEdge(self, block_node:Node, edge:StaticEdge, mappings):
@@ -251,32 +259,43 @@ class BlockSchedulingTransformer:
 
         last_node = history[edge.depth - 1]
         if not last_node:
-            block_node.createStaticInEdge(timing_variable, edge.depth) # append edge
+            # append global input edge
+            current_depth = len(history) - history.count(None)
+            block_node.createStaticInEdge(timing_variable, edge.depth - current_depth)
             return
+        # connect to previous node
         print (f"   > Resolved timing variable: Node '{block_node.name}' links to '{last_node.name}' ({timing_variable}[{edge.depth}])")
         last_node.connectNode(block_node)
 
-    def __resolveTimingVariableOutEdge(self, block_node:Node, edge:StaticEdge, mappings):
+    def __resolveTimingVariableOutEdge(self, block_node:Node, edge:StaticEdge, block_idx:int, mappings):
         timing_variable = edge.timingVariable.name
         history = mappings[timing_variable]
         assert edge.depth == 1, f"Expected outgoing edges to have a depth == 1 (acutal depth: {out_edge.depth})!"
-
+        # update and right-shift history
         print (f"   > Resolved timing variable: Node '{block_node.name}' sets '{timing_variable}'")
-        mappings[timing_variable] = [block_node] + history[:-1] # right-shift history
+        mappings[timing_variable] = [block_node] + history[:-1] 
 
-    def __resolveOutgoingTimingVariables(self, mappings):
+    def __resolveOutgoingTimingVariables(self, block_function:SchedulingFunction, mappings):
         for timing_variable in mappings.timingVariables:
             history = mappings.timingVariables[timing_variable]
+            last_valid_node = None
             for idx in range(0, len(history)):
                 last_node = history[idx]
                 if not last_node:
-                    continue
+                    if not last_valid_node:
+                        continue
+                    # create dummy node to express shift in nodes
+                    dummy = block_function.createNode(f"dummy_{idx}_{timing_variable}")
+                    dummy.createStaticInEdge(timing_variable, idx)
+                    last_node = dummy
+                else:
+                    last_valid_node = last_node
                 edge = last_node.createStaticOutEdge(timing_variable)
                 # TODO: we need to properly support depth > 1 for outgoing edges
                 edge.depth = idx + 1
 
-    def __resolveRegisterInEdge(self, block_node:Node, edge:StaticEdge, block_idx:int, mappings, model:str):
-        instr = self._block_desc.instructions[block_idx]
+    def __resolveRegisterInEdge(self, block_node:Node, edge:StaticEdge, block_desc:BasicBlockDescription, block_idx:int, mappings, model:str):
+        instr = block_desc.instructions[block_idx]
         registers  = mappings[model]
         registerNo = instr[edge.name]
         last_node  = registers[registerNo]
@@ -288,8 +307,8 @@ class BlockSchedulingTransformer:
         print (f"   > Resolved {model}: Node '{block_node.name}' uses 'r{registerNo} ({edge.name})' set by '{last_node.name}'")
         last_node.connectNode(block_node)
 
-    def __resolveRegisterOutEdge(self, block_node:Node, edge:StaticEdge, block_idx:int, mappings, model:str):
-        instr = self._block_desc.instructions[block_idx]
+    def __resolveRegisterOutEdge(self, block_node:Node, edge:StaticEdge, block_desc:BasicBlockDescription, block_idx:int, mappings, model:str):
+        instr = block_desc.instructions[block_idx]
         assert edge.name == self._target_register_mapping[model], f"'{edge.name}' was not recognized as a target register (e.g. Xd, Rd, ...)"
         registers  = mappings[model]
         registerNo = instr[edge.name]
@@ -302,20 +321,22 @@ class BlockSchedulingTransformer:
             for registerNo in mapping:
                 block_node = mapping[registerNo]
                 assert not (block_node and registerNo == 0), f"r0 (zero) should not be used set!"
-                if block_node:
-                    target_register = self._target_register_mapping[model]
-                    print (f"   > Resolved register: Node '{block_node.name}' outputs 'r{registerNo} ({target_register})' ({model})")
-                    edge_name = f"r{registerNo} ({target_register})" if self._rename_edges else target_register
-                    block_node.createDynamicOutEdge(edge_name, model)
+                if not block_node:
+                    continue
+                target_register = self._target_register_mapping[model]
+                print (f"   > Resolved register: Node '{block_node.name}' outputs 'r{registerNo} ({target_register})' ({model})")
+                edge_name = f"r{registerNo} ({target_register})" if self._rename_edges else target_register
+                block_node.createDynamicOutEdge(edge_name, model)
 
     def __resolveBranchPredictionInEdge(self, block_node:Node, edge:StaticEdge, block_idx:int, model:str):
         if block_idx == 0:
             block_node.createDynamicInEdge(edge.name, model)
 
-    def __resolveBranchPredictionOutEdge(self, block_node:Node, edge:StaticEdge, block_idx:int, model:str):
-        instructions = self._block_desc.instructions
+    def __resolveBranchPredictionOutEdge(self, block_node:Node, edge:StaticEdge, block_desc:BasicBlockDescription, block_idx:int, model:str):
+        instructions = block_desc.instructions
         if block_idx == len(instructions) - 1 and self.__isBranchInstruction(instructions[block_idx]):
             block_node.createDynamicOutEdge(edge.name, model)
+
 
     def __isBranchInstruction(self, instr):
         # TODO: refine solution (annoate in corePerfDsl?)
@@ -339,19 +360,3 @@ class BlockSchedulingTransformer:
         # link resource model
         if source_node.resourceModel:
             block_node.resourceModel = block_node.parentVariant.getResourceModel(source_node.resourceModel.name)
-        # copy edges
-        for in_edge in source_node.getAllInEdges():
-            if in_edge.isDynamic():
-                assert in_edge.connectorModel, "Expected dynamic edges to connector models only!"
-                assert in_edge.connectorModel.name in self._supported_models, f"Connector model '{in_edge.connectorModel.name}' is not yet supported, supported are: {self._supported_models}"
-            else:
-                assert in_edge.timingVariable, "Expected static edges to timing variables only!"
-                assert in_edge.depth > 0, f"Expected ingoing edges to have a depth > 1, depth: {in_edge.depth}!"
-
-        for out_edge in source_node.getAllOutEdges():
-            if out_edge.isDynamic():
-                assert out_edge.connectorModel, "Expected dynamc edges to connector models only!"
-                assert out_edge.connectorModel.name in self._supported_models, f"Connector model '{out_edge.connectorModel.name}' ist not yet supported, supported are: {self._supported_models}"
-            else:
-                assert out_edge.timingVariable, "Expected static edges only to timing variables only!"
-                assert out_edge.depth == 1, f"Expected outgoing edges to have a depth == 1, depth: {out_edge.depth}!"

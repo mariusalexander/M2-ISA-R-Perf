@@ -132,7 +132,7 @@ class SchedulingModelViewer:
             if edge_i.isDynamic():
                 dotGraph.edge(self.__scheduleNode(node_i.name), self.__connectorModelOut(edge_i.getConnectorModel().name), label=edge_i.name, color='blue')
             else:
-                dotGraph.edge(self.__scheduleNode(node_i.name), self.__timingVariableOut(edge_i.getTimingVariable().name), color='red')
+                dotGraph.edge(self.__scheduleNode(node_i.name), self.__timingVariableOut(edge_i.getTimingVariable().name), label=("[" + str(edge_i.depth) + "]"), color='red')
 
     def __timingVariableIn(self, name_):
         return ("tvi_" + name_)
