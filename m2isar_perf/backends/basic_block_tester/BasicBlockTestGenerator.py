@@ -20,13 +20,7 @@ from objprint import op
 import re
 import pathlib
 import errno
-import copy
 
-from mako.template import Template
-from collections import deque
-from typing import List, Dict
-from backends.common import dirUtils
-from backends.estimator_generator.CodeBuilder import CodeBuilder
 from backends.estimator_generator.EstimatorGenerator import EstimatorGenerator
 
 from meta_models.scheduling_model.SchedulingModel import SchedulingModel, Variant, SchedulingFunction, Node, StaticEdge
