@@ -17,10 +17,18 @@
 # TODO: remove me, for debugging purpose only
 from objprint import op
 
+import re
+import pathlib
+import errno
 import copy
+
+from mako.template import Template
 from collections import deque
 from typing import List, Dict
 from backends.common import dirUtils
+from backends.estimator_generator.CodeBuilder import CodeBuilder
+from backends.estimator_generator.EstimatorGenerator import EstimatorGenerator
+
 from meta_models.scheduling_model.SchedulingModel import SchedulingModel, Variant, SchedulingFunction, Node, StaticEdge
 from meta_models.block_scheduling_model.BlockSchedulingTransformer import BasicBlockDescription
 
@@ -30,255 +38,97 @@ class BasicBlockTestGenerator:
         pass
 
     def execute(self, sched_model:SchedulingModel, block_model:SchedulingModel, basic_blocks:List[BasicBlockDescription], out_dir):
-        self.out_dir = out_dir
         
         print()
         print("-- BACKEND: BASIC_BLOCK_TEST_GENERATOR --")
 
         idx = 0
-        for variant_i in sched_model.getAllVariants():
-            block_variant_i = block_model.getAllVariants()[idx]
+        for variant_i in block_model.getAllVariants():
+            sched_variant_i = sched_model.variants[idx]
             idx += 1
 
-            print(f" > Creating output directory for {variant_i.name}")
-            out_dir = self.out_dir / variant_i.name / "bb_test"
-            dirUtils.createOrReplaceDir(out_dir)
+            variant_out_dir  = out_dir / variant_i.name / "code" / "perf_model" / "src"
+            try:
+                pathlib.Path(variant_out_dir).mkdir(parents=True)
+            except OSError as e:
+                if e.errno != errno.EEXIST:
+                    raise
             
-            for basic_block in basic_blocks:
-                self.__generateTestsForBaseModel(variant_i, basic_block, out_dir / "instr_sched_model.py")
-                self.__generateTestsForBlockModel(block_variant_i, basic_block, out_dir / "block_sched_model.py")
+            EstimatorGenerator().generateSchedulingFunctions(variant_i, variant_out_dir / "..", "Extension")
+            
+            outFile = variant_out_dir / f"{variant_i.name}_SchedulingFunctionExtension.cpp"
+            
+            with outFile.open('r') as f:
+                code = f.read()
+                # link to exisiting scheduling function set
+                code = re.sub(f"SchedulingFunctionSet\* {variant_i.name}_SchedulingFunctionSet = (.+)\;",
+                              "",
+                              code)
+                # replace getters and setters to Xd, Xa, Xb with registers by number
+                code = re.sub(r"\.get\w+?(\d+)\s\(\w+\)\(\)",
+                            lambda m: f".get({m.group(1)})",
+                            code)
+                code = re.sub(r"\.set\w+?(\d+)\s\(\w+\)\(",
+                            lambda m: f".set({m.group(1)}, ",
+                            code)
+            with outFile.open('w') as f:
+                f.write(code)
 
-            self.__generateMain(basic_blocks, out_dir / "main.py")
+            self.__generateMain(sched_variant_i, variant_i, basic_blocks, out_dir / variant_i.name / "code" / "main.cpp")
+            
 
-    def __generateTestsForBaseModel(self, variant, basicBlock, outFile):
-                
-        schedFuncDict = { schedFunc_i.name: schedFunc_i for schedFunc_i in variant.getAllSchedulingFunctions() }
+    def __generateMain(self, sched_variant, block_variant, basic_blocks, out_file):
+        template_dir = pathlib.Path(__file__).parents[0] / "templates"
+        with (template_dir / "main.cpp").open('r') as f:
+            content = f.read()
+        with (template_dir / "basic_block.cpp").open('r') as f:
+            bb_test = f.read()
 
-        #####
+        # generate debug statements for multielement timing variables
+        timing_variables = sched_variant.getAllMultiElementTimingVariables()
+        for timing_variable in timing_variables:
+            text  = f'\tstd::cout << "\\n-> {timing_variable.name}: ";\n'
+            text += f'\tfor (int i = 0; i < model.{timing_variable.name}.NUM_ELEMENTS; i++) \n\t{{\n'
+            text += f'\t\tstd::cout << (i == model.{timing_variable.name}.ptr ? ">":"") << model.{timing_variable.name}.fifo[i] << ", ";\n\t}}\n'
+            text += "$$multi_timing_variables$$"
+            content = content.replace("$$multi_timing_variables$$", text)
+        content = content.replace("$$multi_timing_variables$$", "")
 
-        code = ""
-        inputs = [ timing_var.name for timing_var in variant.getAllTimingVariables() ]
-        outputs = copy.deepcopy(inputs)
+        # generate channel for the basic block
+        for block_desc in basic_blocks:
+            code = bb_test
+            code = code.replace("$$start_address$$", hex(block_desc.starting_address))
+            code = code.replace("$$instruction_count$$", str(len(block_desc.instructions)))
 
-        numInstr = len(basicBlock.instructions)
-        for i, instr_i in enumerate(basicBlock.instructions):
-            isFirstInstr = (i == 0)
-            isLastInstr  = (i == numInstr - 1)
+            instr_channel = ""
+            for instr in block_desc.instructions:
+                instr_channel += f"\t\tchannel.typeId[idx] = {sched_variant.getSchedulingFunction(instr.name).identifier}; // {instr.name}\n"
+                instr_channel += f"\t\tchannel.pc[idx]     = pc + (4 * idx);\n"
+                if instr.rd is not None:
+                    instr_channel += f"\t\tchannel.rd[idx]     = {instr.rd};\n"
+                if instr.rs1 is not None:
+                    instr_channel += f"\t\tchannel.rs1[idx]    = {instr.rs1};\n"
+                if instr.rs2 is not None:
+                    instr_channel += f"\t\tchannel.rs2[idx]    = {instr.rs2};\n"
+                instr_channel += f"\t\tidx++;\n"
 
-            schedFunc = schedFuncDict[instr_i.name]
+            block_channel  = ""
+            block_channel += f"\t\tchannel.typeId[idx] = {block_variant.getSchedulingFunction(block_desc.name).identifier};\n"
+            block_channel += f"\t\tchannel.pc[idx]     = pc + (4 * idx);\n"
 
-            visitedNodes = []
-            nodeQueue = deque([schedFunc.getRootNode()])
+            code = code.replace("$$instr_begin$$", f'std::cout << "{'#'*5} {block_desc.name} {'#'*5}\\n";')
+            code = code.replace("$$instr_end$$"  , f'std::cout << "{'#'*(12+len(block_desc.name))}\\n";')
+            code = code.replace("$$instr_channel_setup$$", instr_channel)
+            code = code.replace("$$block_desc$$", block_desc.name)
+            code = code.replace("$$block_channel_setup$$", block_channel)
+            content = content.replace("$$basic_blocks$$", f"{code}\n$$basic_blocks$$")
+        content = content.replace("$$basic_blocks$$", "")
 
-            code += "\n"
-            code += f"\t# {hex(instr_i.address)}, {instr_i.name} \n"
+        # insert variant name
+        content = content.replace("$$variant_name$$", block_variant.name)
 
-            while nodeQueue:
-                curNode = nodeQueue.popleft()
-                if curNode not in visitedNodes:
-                    visitedNodes.append(curNode)
-                   
-                    # Process current node
-                    code += f"\tn_{i}_{curNode.name} = "
-                    
-                    inElements = []
-                    for node_i in curNode.getAllInNodes():
-                        inElements.append(f"n_{i}_{node_i.name}")
-                    for edge_i in curNode.getAllInEdges():
-                        if edge_i.isDynamic():
-                            if "Pc" not in edge_i.name or isFirstInstr:
-                                if edge_i.name == "Xa":
-                                    inEdge = f"reg_{instr_i['Xa']}"
-                                elif edge_i.name == "Xb":
-                                    inEdge = f"reg_{instr_i['Xb']}"
-                                else:
-                                    inEdge = f"in_{i}_{edge_i.name}"
+        # trim tabs
+        content = content.replace("\t", " " * 4)
 
-                                if inEdge not in inputs and inEdge not in outputs:
-                                    inputs.append(inEdge)
-                                inElements.append(inEdge)
-                        else: # Static edge
-                            inElements.append(f"{edge_i.getTimingVariable().name}")
-
-                    if len(inElements) > 1:
-                        code += "max(["
-                        code += ", ".join(inElements)
-                        code += "])"
-                    elif len(inElements) == 1:
-                        code += inElements[0]
-                    
-                    if not curNode.hasZeroDelay():
-                        if curNode.hasDynamicDelay():
-                            edge = f"i_{curNode.getResourceModel().name}"
-                            code += f" + {edge}"
-                            if edge not in inputs:
-                                inputs.append(edge)
-                        else:
-                            code += f" + {curNode.getDelay()}"
-
-                    code += "\n" 
-
-                    outEdges = []
-                    for outEdge_i in curNode.getAllOutEdges():
-                        if outEdge_i.isDynamic():
-                            if "Pc_" not in outEdge_i.name or isLastInstr:
-                                if outEdge_i.name == "Xd":
-                                    outEdge = f"reg_{instr_i['Xd']}"
-                                else:   
-                                    outEdge = f"out_{i}_{outEdge_i.name}"
-                                if outEdge not in outputs:
-                                    outputs.append(outEdge)
-                                outEdges.append(outEdge)
-                        else:
-                            outEdges.append(outEdge_i.getTimingVariable().name)
-                    for outEdge_i in outEdges:
-                        code += f"\t{outEdge_i} = n_{i}_{curNode.name}\n"
-                        
-
-                    # Add children to queue
-                    for nxtNode_i in curNode.getAllOutNodes():
-                        if all((predecessor in visitedNodes) for predecessor in nxtNode_i.getAllInNodes()):
-                            nodeQueue.append(nxtNode_i)
-
-        basicBlock.__inputs = list(inputs)
-        print(inputs, "vs", basicBlock.__inputs)
-
-        function  = f"def {basicBlock.name}(" + ", ".join(inputs) + "):"
-        function += code
-        function += "\n\treturn {" + ", ".join([ f"'{o}':{o}" for o in outputs]) + "}\n\n"
-        print(function)
-
-        with outFile.open('a') as f:
-            f.write(function)
-
-    def __generateTestsForBlockModel(self, variant, basicBlock, outFile):
-                
-        schedFuncDict = { schedFunc_i.name: schedFunc_i for schedFunc_i in variant.getAllSchedulingFunctions() }
-
-        #####
-
-        code = "\n"
-        inputs = [ timing_var.name for timing_var in variant.getAllTimingVariables() ]
-        outputs = copy.deepcopy(inputs)
-
-        isFirstInstr = True
-        isLastInstr  = True
-
-        schedFunc = schedFuncDict[basicBlock.name]
-
-        visitedNodes = []
-        nodeQueue = deque([schedFunc.getRootNode()])
-
-        while nodeQueue:
-            curNode = nodeQueue.popleft()
-            if curNode not in visitedNodes:
-                visitedNodes.append(curNode)
-                
-                # Process current node
-                code += f"\tn_{curNode.name} = "
-                
-                inElements = []
-                for node_i in curNode.getAllInNodes():
-                    inElements.append(f"n_{node_i.name}")
-                for edge_i in curNode.getAllInEdges():
-                    if edge_i.isDynamic():
-                        print(edge_i.name)
-                        if "Xa" in edge_i.name:
-                            inEdge = f"reg_{edge_i.name[1:edge_i.name.index(' ')]}"
-                        elif "Xb" in edge_i.name:
-                            inEdge = f"reg_{edge_i.name[1:edge_i.name.index(' ')]}"
-                        elif "Cb_out" in edge_i.name:
-                            inEdge = f"in_Cb_out_{edge_i.name[1:edge_i.name.index(' ')]}"
-                        else:
-                            inEdge = f"in_{edge_i.name}"
-
-                        if inEdge not in inputs:
-                            inputs.append(inEdge)
-                        inElements.append(inEdge)
-                    else: # Static edge
-                        inElements.append(f"{edge_i.getTimingVariable().name}")
-
-                if len(inElements) > 1:
-                    code += "max(["
-                    code += ", ".join(inElements)
-                    code += "])"
-                elif len(inElements) == 1:
-                    code += inElements[0]
-                
-                if not curNode.hasZeroDelay():
-                    if curNode.hasDynamicDelay():
-                        edge = f"i_{curNode.getResourceModel().name}"
-                        code += f" + {edge}"
-                        if edge not in inputs:
-                            inputs.append(edge)
-                    else:
-                        code += f" + {curNode.getDelay()}"
-
-                code += "\n" 
-
-                outEdges = []
-                for outEdge_i in curNode.getAllOutEdges():
-                    if outEdge_i.isDynamic():
-                        if "Xd" in outEdge_i.name:
-                            outEdge = f"reg_{outEdge_i.name[1:outEdge_i.name.index(' ')]}"
-                        elif "Cb_in" in outEdge_i.name:
-                            outEdge = f"out_Cb_in_{outEdge_i.name[1:outEdge_i.name.index(' ')]}"
-                        else:   
-                            outEdge = f"out_{outEdge_i.name}"
-                        if outEdge not in outputs:
-                            outputs.append(outEdge)
-                        outEdges.append(outEdge)
-                    else:
-                        outEdges.append(outEdge_i.getTimingVariable().name)
-                for outEdge_i in outEdges:
-                    code += f"\t{outEdge_i} = n_{curNode.name}\n"
-                    
-
-                # Add children to queue
-                for nxtNode_i in curNode.getAllOutNodes():
-                    if all((predecessor in visitedNodes) for predecessor in nxtNode_i.getAllInNodes()):
-                        nodeQueue.append(nxtNode_i)
-
-        if len(inputs) != len(basicBlock.__inputs):
-            op("Error:")
-            uniqueA = [i for i in basicBlock.__inputs if i not in inputs]
-            uniqueB = [i for i in inputs if i not in basicBlock.__inputs]
-            op("Not in basic block model:", uniqueA)
-            op("Not in instr sched model:", uniqueB)
-            raise RuntimeError(f"Inputs mismatch! ({len(basicBlock.__inputs)} vs. {len(inputs)})")
-
-        function  = f"def {basicBlock.name}(" + ", ".join(inputs) + "):"
-        function += code
-        function += "\n\treturn {" + ", ".join([ f"'{o}':{o}" for o in outputs]) + "}\n\n"
-        print(function)
-
-        with outFile.open('a') as f:
-            f.write(function)
-
-    def __generateMain(self, basic_blocks, outFile):
-        code  = """
-from objprint import op
-import instr_sched_model as instr_model
-import block_sched_model as block_model
-"""
-        code += "import instr_sched_model as instr_model\n"
-        code += "import block_sched_model as block_model\n"
-        code += "\n"
-        code += "def main():\n"
-        for basic_block in basic_blocks:
-            code +=  "\tinputs = {\n\t\t" + ',\n\t\t'.join([ f"'{o}' :{' ' * (10 - len(o))}0" for o in basic_block.__inputs ]) + "\n\t}\n"
-            code += f"\tprint('Testing {basic_block.name}...')\n"
-            code += f"\tA = instr_model.{basic_block.name}(*inputs.values())\n"
-            code += f"\tB = block_model.{basic_block.name}(*inputs.values())\n"
-            code +=  "\top(A)\n"
-            code +=  "\tprint('vs')\n"
-            code +=  "\top(B)\n"
-            code +=  "\tprint()\n"
-            code +=  "\n"
-        code += """
-if __name__ == "__main__":
-    main()
-"""
-
-        with outFile.open('w') as f:
-            f.write(code)
+        with out_file.open('w') as f:
+            f.write(content)

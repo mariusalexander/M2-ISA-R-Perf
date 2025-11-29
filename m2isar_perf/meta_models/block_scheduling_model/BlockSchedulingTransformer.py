@@ -162,7 +162,7 @@ class BlockSchedulingTransformer:
             block_instr = block_desc.instructions[block_idx]
 
             # find instruction of BB in base scheduling model and append nodes to block function
-            sched_function = self.__findSchedulingFunctionByName(sched_functions, block_instr.name)
+            sched_function = sched_variant.getSchedulingFunction(block_instr.name)
             self.__appendSchedulingFunction(sched_function, block_function, block_desc, block_idx, mappings)
 
             #op("[FINAL] Timing Variables:", { var:[ n.name if n else None for n in mappings.timingVariables[var] ] for var in mappings.timingVariables})
@@ -205,9 +205,10 @@ class BlockSchedulingTransformer:
         assert all([ self.__findNode(block_function, block_idx, n) for n in sched_function.getAllNodes() ])
 
         # setup root node respectively
-        root_node = self.__findNode(block_function, block_idx, sched_function.getRootNode())
-        print(f"  > Setting root node: '{root_node.name}'")
-        block_function.setRootNode(root_node)
+        if not block_function.getRootNode():
+            root_node = self.__findNode(block_function, block_idx, root_node)
+            print(f"  > Setting root node: '{root_node.name}'")
+            block_function.setRootNode(root_node)
             
         assert not sched_function.endNode, "It is assumed, that `SchedulingFunction.endNode` is not used"
 
@@ -347,9 +348,6 @@ class BlockSchedulingTransformer:
         element = list(filter(lambda e: e.name == name, elements))
         assert len(element) == 1, error_str
         return element[0]
-
-    def __findSchedulingFunctionByName(self, elements, instr_name) -> SchedulingFunction :
-        return self.__findElementByName(elements, instr_name, f"BlockSchedulingTransformer: No scheduling instructions found for instruction '{instr_name}'")
 
     def __findNode(self, block_function:SchedulingFunction, block_idx:int, source_node:Node) -> Node :
         return self.__findElementByName(block_function.nodes, f"{source_node.name}_{block_idx}")

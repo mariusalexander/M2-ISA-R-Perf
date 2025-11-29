@@ -59,8 +59,12 @@ class EstimatorGenerator:
         outFile_src = outDir_ / "src" / (variant_.name + "_PerformanceModel.cpp")
         with outFile_src.open('w') as f:
             f.write(code_src)
-            
-    def __generateSchedulingFunctions(self, variant_, outDir_):
+
+    def generateSchedulingFunctions(self, variant_, outDir_, suffix = ""):
+        self.builder = Builder(variant_)
+        self.__generateSchedulingFunctions(variant_, outDir_, suffix)
+
+    def __generateSchedulingFunctions(self, variant_, outDir_, suffix = ""):
 
         # For each scheduling function, create code body
         codeBodyDict = {}
@@ -72,7 +76,7 @@ class EstimatorGenerator:
         # Generate SchedulingFunction file
         template = Template(filename = str(self.templateDir) + "/src/SchedulingFunction.mako")
         code = template.render(**{"variant_": variant_, "codeBodyDict_": codeBodyDict, "builder_": self.builder})
-        outFile = outDir_ / "src" / (variant_.name + "_SchedulingFunction.cpp")
+        outFile = outDir_ / "src" / f"{variant_.name}_SchedulingFunction{suffix}.cpp"
         with outFile.open('w') as f:
             f.write(code)
         
