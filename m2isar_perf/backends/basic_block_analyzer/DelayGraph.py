@@ -17,8 +17,6 @@
 # TODO: remove me, for debugging purpose only
 from objprint import op
 
-import re
-import sympy as sym
 import time
 from collections import deque
 from meta_models.scheduling_model.SchedulingModel import SchedulingModel, Variant, SchedulingFunction, Node, StaticEdge
@@ -56,24 +54,28 @@ class DelayGraph:
     """Delay Graph"""
 
     def __init__(self):
-        self.variable_names = {}
+        self._variable_names = {}
         
     def transform(self, block_model:SchedulingModel):
         print("-- BACKENDS: DELAY_GRAPH --")
         
+        variants = {}
         # iterate over each variant
         for block_variant in block_model.getAllVariants():
             print(f" > Generating delay graph for '{block_variant.name}'")
-            self.__generateDelayGraphForEachFunction(block_variant)
+            variants[block_variant.name] = self.__generateDelayGraphForEachFunction(block_variant)
+            return variants
 
     def __generateDelayGraphForEachFunction(self, block_variant:Variant):
         block_functions = block_variant.getAllSchedulingFunctions()
+        basic_blocks = {}
         for block_function in block_functions:
             print(f"  > Generating delay graph for '{block_function.name}'")
             start = time.perf_counter_ns()
-            self.__generateDelayGraphForFunction(block_variant, block_function)
+            basic_blocks[block_function.name] = self.__generateDelayGraphForFunction(block_variant, block_function)
             end   = time.perf_counter_ns()
             print(f"  > took {(end - start) / 1_000_000}ms!")
+        return basic_blocks
 
     def __generateDelayGraphForFunction(self, block_variant:Variant, block_function:SchedulingFunction):
         nodes   = {}
@@ -97,15 +99,17 @@ class DelayGraph:
             for in_node in source_node.getAllInNodes():
                 for sym_var in nodes[in_node.name]:
                     sym_vars.append(sym_var.merge(source_node.delay))
-                    
-            assert not source_node.resourceModel, "dynamic delay of resource model not yet handled"
+            
+            if source_node.resourceModel:
+                sym_var = SymbolicDelay(source_node.resourceModel.name.lower(), source_node.delay)
+                sym_vars.append(sym_var)
 
             function = SymbolicDelay.Max(*sym_vars)
             print(f"   > {source_node.name.lower(): <15}: {self.__function_to_str(function, indent=21)}")
 
             # set output
             for edge in source_node.getAllOutEdges():
-                var_name = f"out_{self.__variable_name(edge)}"
+                var_name = self.__variable_name(edge)
                 outputs[var_name] = function
 
             # store function of current node
@@ -121,12 +125,13 @@ class DelayGraph:
         
         print(f"   > outputs:")
         for output in outputs:
-            print(f"    > {output.replace("out_", ""): <13} = {self.__function_to_str(outputs[output], indent=21)}")
+            print(f"    > {output: <13} = {self.__function_to_str(outputs[output], indent=21)}")
+        return outputs
 
     def __variable_name(self, edge):
         if edge.isDynamic():
             var_name = edge.name
-        elif edge.depth == 1:
+        elif edge.timingVariable.getNumElements() == 1:
             var_name = edge.timingVariable.name
         else:
             var_name = f"{edge.timingVariable.name}[{edge.depth}]"
@@ -137,17 +142,26 @@ class DelayGraph:
             .replace("(xa)", "") \
             .replace("(xb)", "") \
             .replace("(xd)", "") \
+            .replace("(cb_out)", "") \
+            .replace("(cb_in)", "") \
             .replace("_stage", "") \
             .replace("_substage", "_sub")
-        assert new_name not in self.variable_names, f"generated duplicate variable name! ('{new_name}' from '{var_name}')"
-        self.variable_names[var_name] = new_name
+        assert new_name not in self._variable_names, f"generated duplicate variable name! ('{new_name}' from '{var_name}')"
+        self._variable_names[var_name] = new_name
         return new_name
 
-    def __function_to_str(self, function, indent=0):
+    def __function_to_str(self, function, indent=0, word_wrap_at=100):
+        indent += 4
         text = f'{function}'
         lines = []
-        while len(text) > 120:
-            idx = text.index(" ", 120)
+        while len(text) > word_wrap_at:
+            try:
+                idx = text.index(",", word_wrap_at)
+            except ValueError:
+                try:
+                    idx = text.index(" ", word_wrap_at)
+                except ValueError:
+                    break
             lines += [text[:idx]]
             text   = text[idx:]
         lines += [text]

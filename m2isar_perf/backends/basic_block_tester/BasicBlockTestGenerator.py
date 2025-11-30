@@ -19,7 +19,6 @@ from objprint import op
 
 import re
 import pathlib
-import errno
 from typing import List
 
 from backends.estimator_generator.EstimatorGenerator import EstimatorGenerator
@@ -42,11 +41,7 @@ class BasicBlockTestGenerator:
             idx += 1
 
             variant_out_dir  = out_dir / variant_i.name / "code" / "perf_model" / "src"
-            try:
-                pathlib.Path(variant_out_dir).mkdir(parents=True)
-            except OSError as e:
-                if e.errno != errno.EEXIST:
-                    raise
+            pathlib.Path(variant_out_dir).mkdir(parents=True, exist_ok=True)
             
             EstimatorGenerator().generateSchedulingFunctions(variant_i, variant_out_dir / "..", "Extension")
             
