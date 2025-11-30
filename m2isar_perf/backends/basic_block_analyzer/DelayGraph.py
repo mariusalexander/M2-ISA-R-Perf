@@ -49,15 +49,6 @@ class SymbolicDelay:
         for var_name in names:
             max_val = max([var.delay for var in vars_ if var.name == var_name])
             simplified.append(SymbolicDelay(var_name, max_val))
-
-        def natural_sort_key(s):
-            # True if contains digits → sort after pure-alpha strings
-            has_number = bool(re.search(r'\d', s.name))
-            
-            # Split into text and number chunks: "file10x" → ["file", 10, "x"]
-            parts = [int(p) if p.isdigit() else p for p in re.split(r'(\d+)', s.name)]
-            
-            return (not has_number, parts)
             
         return list(reversed(sorted(simplified, key=lambda x: x.delay)))
 
@@ -106,6 +97,8 @@ class DelayGraph:
             for in_node in source_node.getAllInNodes():
                 for sym_var in nodes[in_node.name]:
                     sym_vars.append(sym_var.merge(source_node.delay))
+                    
+            assert not source_node.resourceModel, "dynamic delay of resource model not yet handled"
 
             function = SymbolicDelay.Max(*sym_vars)
             print(f"   > {source_node.name.lower(): <15}: {self.__function_to_str(function, indent=21)}")
