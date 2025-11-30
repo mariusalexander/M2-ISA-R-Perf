@@ -35,6 +35,7 @@ from backends.schedule_viewer.SchedulingModelViewer import SchedulingModelViewer
 from backends.estimator_generator.EstimatorGenerator import EstimatorGenerator
 from backends.basic_block_tester.BasicBlockTestGenerator import BasicBlockTestGenerator
 from backends.basic_block_analyzer.DelayGraph import DelayGraph
+from backends.basic_block_analyzer.DelayGraphViewer import DelayGraphViewer
 
 # Read command line arguments
 argParser = argparse.ArgumentParser()
@@ -75,7 +76,7 @@ if args.block_transform:
     r = AbiRegisters()
 
     descs = []
-    """
+    
     desc = BasicBlockDescription("combo_bb_1", 0x100047c)
     desc.addInstruction("addi", rd =r.sp , rs1=r.sp, imm=(-0x1b0))
     desc.addInstruction("sw"  , rs1=r.s0 , rs2=r.sp)
@@ -96,11 +97,11 @@ if args.block_transform:
     desc.addInstruction("add" , rd=16, rs1=15, rs2=7)
     desc.addInstruction("add" , rd=15, rs1=15, rs2=16)
     descs.append(desc)
-    """
+    
     desc = BasicBlockDescription("combo_lw_addi_sw", 0x000003c4)
     desc.addInstruction("lw"  , rd=3 , rs1=2)
-    #desc.addInstruction("addi", rd=4, rs1=3, imm=16)
-    #desc.addInstruction("sw"  , rs1=3, rs2=4)
+    desc.addInstruction("addi", rd=4, rs1=3, imm=16)
+    desc.addInstruction("sw"  , rs1=3, rs2=4)
     descs.append(desc)
 
     blockSchedule = BlockSchedulingTransformer().transform(schedModel, descs)
@@ -108,4 +109,5 @@ if args.block_transform:
         BasicBlockTestGenerator().execute(schedModel, blockSchedule, descs, outDir)
     if args.info_print:
         SchedulingModelViewer().execute(blockSchedule, outDir, cluster=False)
-    DelayGraph().transform(blockSchedule)
+    delayGraph = DelayGraph().transform(blockSchedule)
+    DelayGraphViewer().execute(delayGraph, outDir)
