@@ -34,6 +34,7 @@ from backends.structure_viewer.StructuralModelViewer import StructuralModelViewe
 from backends.schedule_viewer.SchedulingModelViewer import SchedulingModelViewer
 from backends.estimator_generator.EstimatorGenerator import EstimatorGenerator
 from backends.basic_block_tester.BasicBlockTestGenerator import BasicBlockTestGenerator
+from backends.basic_block_analyzer.DelayGraph import DelayGraph
 
 # Read command line arguments
 argParser = argparse.ArgumentParser()
@@ -74,6 +75,7 @@ if args.block_transform:
     r = AbiRegisters()
 
     descs = []
+    """
     desc = BasicBlockDescription("combo_bb_1", 0x100047c)
     desc.addInstruction("addi", rd =r.sp , rs1=r.sp, imm=(-0x1b0))
     desc.addInstruction("sw"  , rs1=r.s0 , rs2=r.sp)
@@ -88,19 +90,22 @@ if args.block_transform:
     desc.addInstruction("addi", rd =r.a0 , rs1=r.a0, imm=(0x760))
     desc.addInstruction("bge" , rs1=r.zero, rs2=r.a1, imm=(0x1000644)) # implements blez: 0 => a1 <--> a1 <= 0
     descs.append(desc)
-    """
+
     desc = BasicBlockDescription("combo_addi_add_add", 0x000003c4)
     desc.addInstruction("addi", rd=15, rs1=15, imm=255)
     desc.addInstruction("add" , rd=16, rs1=15, rs2=7)
     desc.addInstruction("add" , rd=15, rs1=15, rs2=16)
     descs.append(desc)
-
+    """
     desc = BasicBlockDescription("combo_lw_addi_sw", 0x000003c4)
     desc.addInstruction("lw"  , rd=3 , rs1=2)
-    desc.addInstruction("addi", rd=4, rs1=3, imm=16)
-    desc.addInstruction("sw"  , rs1=3, rs2=4)
+    #desc.addInstruction("addi", rd=4, rs1=3, imm=16)
+    #desc.addInstruction("sw"  , rs1=3, rs2=4)
     descs.append(desc)
-    """
+
     blockSchedule = BlockSchedulingTransformer().transform(schedModel, descs)
-    SchedulingModelViewer().execute(blockSchedule, outDir, cluster=False)
-    BasicBlockTestGenerator().execute(schedModel, blockSchedule, descs, outDir)
+    if args.code_gen:
+        BasicBlockTestGenerator().execute(schedModel, blockSchedule, descs, outDir)
+    if args.info_print:
+        SchedulingModelViewer().execute(blockSchedule, outDir, cluster=False)
+    DelayGraph().transform(blockSchedule)

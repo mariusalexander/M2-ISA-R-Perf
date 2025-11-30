@@ -16,9 +16,9 @@
 
 # TODO: remove me, for debugging purpose only
 from objprint import op
-from collections import deque
 
 import copy
+from collections import deque
 from typing import List, Dict
 from meta_models.scheduling_model.SchedulingModel import SchedulingModel, Variant, SchedulingFunction, Node, StaticEdge
 
@@ -116,7 +116,7 @@ class BlockSchedulingTransformer:
         Transforms basic blocks (BB) into a block scheudling model.
         The model is a regular Scheduling Model which only contains a scheduling function for each BB.
         """
-        print ("-- TRANSMFORMER: BLOCK_SCHEDULING_MODEL --")
+        print("-- TRANSMFORMER: BLOCK_SCHEDULING_MODEL --")
 
         blockSchedulingModel = SchedulingModel()
         

@@ -20,9 +20,9 @@ from objprint import op
 import re
 import pathlib
 import errno
+from typing import List
 
 from backends.estimator_generator.EstimatorGenerator import EstimatorGenerator
-
 from meta_models.scheduling_model.SchedulingModel import SchedulingModel, Variant, SchedulingFunction, Node, StaticEdge
 from meta_models.block_scheduling_model.BlockSchedulingTransformer import BasicBlockDescription
 
