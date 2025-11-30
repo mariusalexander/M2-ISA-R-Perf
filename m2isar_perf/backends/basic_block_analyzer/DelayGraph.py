@@ -17,9 +17,49 @@
 # TODO: remove me, for debugging purpose only
 from objprint import op
 
+import re
 import sympy as sym
+import time
 from collections import deque
 from meta_models.scheduling_model.SchedulingModel import SchedulingModel, Variant, SchedulingFunction, Node, StaticEdge
+
+class SymbolicDelay:
+
+    def __init__(self, name:str, delay:int=0):
+        self.name  = name
+        self.delay = delay
+
+    def __str__(self):
+        s = ""
+        #if self.delay > 0:
+        s += f"{self.delay} + "
+        s += self.name
+        return s
+
+    def __repr__(self):
+        return self.__str__()
+        
+    def merge(self, delay:int) -> 'SymbolicDelay':
+        return SymbolicDelay(self.name, self.delay + delay)
+
+    @staticmethod
+    def Max(*vars_):
+        simplified = []
+        names = set([arg.name for arg in vars_])
+        for var_name in names:
+            max_val = max([var.delay for var in vars_ if var.name == var_name])
+            simplified.append(SymbolicDelay(var_name, max_val))
+
+        def natural_sort_key(s):
+            # True if contains digits → sort after pure-alpha strings
+            has_number = bool(re.search(r'\d', s.name))
+            
+            # Split into text and number chunks: "file10x" → ["file", 10, "x"]
+            parts = [int(p) if p.isdigit() else p for p in re.split(r'(\d+)', s.name)]
+            
+            return (not has_number, parts)
+            
+        return list(reversed(sorted(simplified, key=lambda x: x.delay)))
 
 class DelayGraph:
     """Delay Graph"""
@@ -32,37 +72,43 @@ class DelayGraph:
         
         # iterate over each variant
         for block_variant in block_model.getAllVariants():
-            print(f"> Generating delay graph for '{block_variant.name}'")
+            print(f" > Generating delay graph for '{block_variant.name}'")
             self.__generateDelayGraphForEachFunction(block_variant)
 
     def __generateDelayGraphForEachFunction(self, block_variant:Variant):
         block_functions = block_variant.getAllSchedulingFunctions()
         for block_function in block_functions:
+            print(f"  > Generating delay graph for '{block_function.name}'")
+            start = time.perf_counter_ns()
             self.__generateDelayGraphForFunction(block_variant, block_function)
+            end   = time.perf_counter_ns()
+            print(f"  > took {(end - start) / 1_000_000}ms!")
 
     def __generateDelayGraphForFunction(self, block_variant:Variant, block_function:SchedulingFunction):
         nodes   = {}
         outputs = {}
         visited = []
         # find all root nodes
-        queue     = deque([n for n in block_function.getAllNodes() if len(n.getAllInNodes()) == 0])
+        queue   = deque([n for n in block_function.getAllNodes() if len(n.getAllInNodes()) == 0])
 
         while queue:
             source_node = queue.popleft()
             assert source_node not in visited
             visited.append(source_node)
 
-            args = []
+            sym_vars = []
             # append in edges to function
             for edge in source_node.getAllInEdges():
                 var_name = self.__variable_name(edge)
-                args.append(sym.Symbol(var_name) + source_node.delay)
+                sym_var = SymbolicDelay(var_name, source_node.delay)
+                sym_vars.append(sym_var)
             # append in node to function
             for in_node in source_node.getAllInNodes():
-                args.append(nodes[in_node.name] + source_node.delay)
+                for sym_var in nodes[in_node.name]:
+                    sym_vars.append(sym_var.merge(source_node.delay))
 
-            function = sym.Max(*args)
-            print(f" > {source_node.name.lower(): <15}: {self.__function_to_str(function, indent=19)}")
+            function = SymbolicDelay.Max(*sym_vars)
+            print(f"   > {source_node.name.lower(): <15}: {self.__function_to_str(function, indent=21)}")
 
             # set output
             for edge in source_node.getAllOutEdges():
@@ -80,10 +126,9 @@ class DelayGraph:
         # make sure all nodes are processed
         assert all([ n in visited for n in block_function.getAllNodes() ])
         
-        print()
-        print(f" > outputs:")
+        print(f"   > outputs:")
         for output in outputs:
-            print(f"  > {output.replace("out_", ""): <15} = {self.__function_to_str(outputs[output], indent=21)}")
+            print(f"    > {output.replace("out_", ""): <13} = {self.__function_to_str(outputs[output], indent=21)}")
 
     def __variable_name(self, edge):
         if edge.isDynamic():
@@ -113,4 +158,4 @@ class DelayGraph:
             lines += [text[:idx]]
             text   = text[idx:]
         lines += [text]
-        return f"\n{" " * indent}".join(lines)
+        return f"max{f"\n{" " * indent}".join(lines)}"

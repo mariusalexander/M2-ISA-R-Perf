@@ -18,6 +18,7 @@
 from objprint import op
 
 import copy
+import time
 from collections import deque
 from typing import List, Dict
 from meta_models.scheduling_model.SchedulingModel import SchedulingModel, Variant, SchedulingFunction, Node, StaticEdge
@@ -122,7 +123,7 @@ class BlockSchedulingTransformer:
         
         # iterate over each variant
         for sched_variant in sched_model.getAllVariants():
-            print(f"> Generating block scheduling model for '{sched_variant.name}'")
+            print(f" > Generating block scheduling model for '{sched_variant.name}'")
 
             block_variant = blockSchedulingModel.createVariant(sched_variant.name)
 
@@ -132,14 +133,17 @@ class BlockSchedulingTransformer:
 
             # iterate over each BB
             for block_desc in block_descriptions:
+                start = time.perf_counter_ns()
                 self.__generateBlockSchedulingFunction(sched_variant, block_variant, block_desc)
+                end = time.perf_counter_ns()
+                print(f"  > took {(end - start) / 1_000_000}ms!")
 
         return blockSchedulingModel
 
     def __generateBlockSchedulingFunction(self, sched_variant:Variant, block_variant:Variant, block_desc:BasicBlockDescription):
         """
         """
-        print(f" > Generating block scheduling function for '{block_desc.name}'...")
+        print(f"  > Generating block scheduling function for '{block_desc.name}'...")
 
         # create block scheudling function
         block_function = block_variant.createSchedulingFunction(block_desc.name, self._id)
@@ -175,7 +179,7 @@ class BlockSchedulingTransformer:
         """
         """
         block_instr = block_desc.instructions[block_idx]
-        print(f"  > Appending instruction '{block_instr.name}' (id: {sched_function.identifier})...")
+        print(f"   > Appending instruction '{block_instr.name}' (id: {sched_function.identifier})...")
 
         root_node = sched_function.getRootNode()
         assert root_node
@@ -207,7 +211,7 @@ class BlockSchedulingTransformer:
         # setup root node respectively
         if not block_function.getRootNode():
             root_node = self.__findNode(block_function, block_idx, root_node)
-            print(f"  > Setting root node: '{root_node.name}'")
+            print(f"   > Setting root node: '{root_node.name}'")
             block_function.setRootNode(root_node)
             
         assert not sched_function.endNode, "It is assumed, that `SchedulingFunction.endNode` is not used"
@@ -273,7 +277,7 @@ class BlockSchedulingTransformer:
         history = mappings[timing_variable]
         assert edge.depth == 1, f"Expected outgoing edges to have a depth == 1 (acutal depth: {out_edge.depth})!"
         # update and right-shift history
-        print (f"   > Resolved timing variable: Node '{block_node.name}' sets '{timing_variable}'")
+        print (f"    > Resolved timing variable: Node '{block_node.name}' sets '{timing_variable}'")
         mappings[timing_variable] = [block_node] + history[:-1] 
 
     def __resolveOutgoingTimingVariables(self, block_function:SchedulingFunction, mappings):
@@ -301,11 +305,11 @@ class BlockSchedulingTransformer:
         registerNo = instr[edge.name]
         last_node  = registers[registerNo]
         if not last_node:
-            print (f"   > Resolved {model}: Node '{block_node.name}' uses 'r{registerNo} ({edge.name})'")
+            print (f"    > Resolved {model}: Node '{block_node.name}' uses 'r{registerNo} ({edge.name})'")
             edge_name = f"r{registerNo} ({edge.name})" if self._rename_edges else edge.name
             block_node.createDynamicInEdge(edge_name, model) # append edge
             return
-        print (f"   > Resolved {model}: Node '{block_node.name}' uses 'r{registerNo} ({edge.name})' set by '{last_node.name}'")
+        print (f"    > Resolved {model}: Node '{block_node.name}' uses 'r{registerNo} ({edge.name})' set by '{last_node.name}'")
         last_node.connectNode(block_node)
 
     def __resolveRegisterOutEdge(self, block_node:Node, edge:StaticEdge, block_desc:BasicBlockDescription, block_idx:int, mappings, model:str):
@@ -313,7 +317,7 @@ class BlockSchedulingTransformer:
         assert edge.name == self._target_register_mapping[model], f"'{edge.name}' was not recognized as a target register (e.g. Xd, Rd, ...)"
         registers  = mappings[model]
         registerNo = instr[edge.name]
-        print (f"   > Resolved register: Node '{block_node.name}' sets 'r{registerNo} ({edge.name})'")
+        print (f"    > Resolved register: Node '{block_node.name}' sets 'r{registerNo} ({edge.name})'")
         registers[registerNo]  = block_node
 
     def __resolveOutgoingRegisters(self, mappings):
@@ -325,7 +329,7 @@ class BlockSchedulingTransformer:
                 if not block_node:
                     continue
                 target_register = self._target_register_mapping[model]
-                print (f"   > Resolved register: Node '{block_node.name}' outputs 'r{registerNo} ({target_register})' ({model})")
+                print (f"    > Resolved register: Node '{block_node.name}' outputs 'r{registerNo} ({target_register})' ({model})")
                 edge_name = f"r{registerNo} ({target_register})" if self._rename_edges else target_register
                 block_node.createDynamicOutEdge(edge_name, model)
 
