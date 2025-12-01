@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
- 
+
 # TODO: remove me, for debugging purpose only
 from objprint import op
 
@@ -53,7 +53,7 @@ class DelayGraphViewer:
                 basic_block = variant[block_name]
 
                 outputs = [n for n in basic_block]
-                inputs  = set(var.name for o in outputs for var in basic_block[o])
+                inputs  = set(var.name for o in outputs for var in basic_block[o] if not var.name.startswith("o_"))
                 #outputs = sorted(outputs)
                 inputs  = sorted(list(inputs))
 
@@ -83,7 +83,7 @@ class DelayGraphViewer:
                 min_vars = []
                 for input_var in inputs:
                     min_var = min([v.delay for o in outputs for v in basic_block[o] if v.name == input_var])
-                    node = subgraph.node(self.__plus(input_var, min_var), label=f"+{min_var}", shape='ellipse')
+                    node = subgraph.node(self.__plus(input_var, min_var), label=f"+{min_var}", shape='ellipse') # plus
                     nodes[self.__plus(input_var, min_var)] = node
                     subgraph.edge(self.__input(input_var), self.__plus(input_var, min_var))
                     min_vars.append(min_var)
@@ -91,50 +91,72 @@ class DelayGraphViewer:
                 max_vars = {}
                 for output in outputs:
                     function = basic_block[output]
-                    node_name = self.__max(function)
-                    if node_name not in nodes:
-                        node = subgraph.node(node_name, label="max", shape='ellipse')
-                        nodes[node_name] = node
-                        max_vars[node_name] = function
-                        success = False
-                        for var in function:
-                            if self.__plus(var.name, var.delay) in nodes:
-                                subgraph.edge(self.__plus(var.name, var.delay), node_name)
-                                success = True
-                        # TODO: needs refactoring
-                        if not success:
-                            for max_var in max_vars:
-                                other_function = max_vars[max_var]
-                                other_inputs = [n.name for n in other_function]
-                                diff = None
-                                success = True
-                                for var in function:
-                                    if var.name in other_inputs:
-                                        idx = other_inputs.index(var.name)
-                                        if diff is None:
-                                            diff = var.delay - other_function[idx].delay
-                                            if diff < 0:
-                                                print("NEGATIVE DELAY", diff, output, var)
-                                                success = False
-                                                break
-                                            continue
-                                        if var.delay - other_function[idx].delay != diff:
-                                            print("DIFFERENT DELAY", diff, output, var)
+                    node_name = self.__max(output)
+                    if node_name in nodes:
+                        subgraph.edge(node_name, self.__output(output))
+                        continue
+                    node = subgraph.node(node_name, label="max", shape='ellipse') # max
+                    subgraph.edge(node_name, self.__output(output))
+                    nodes[node_name] = node
+                    max_vars[node_name] = function
+
+                    success = False
+                    for var in function:
+                        other_node_name = self.__max(var.name)
+
+                        if other_node_name in max_vars:
+                            max_plus_name = self.__plus(self.__max(var.name), var.delay)
+                            if not max_plus_name in nodes:
+                                node = subgraph.node(max_plus_name, label=f"+{var.delay}", shape='ellipse') # plus
+                                nodes[max_plus_name] = node
+                                print("ADDING EDGE", f"{other_node_name} -> {max_plus_name} ({node_name})")
+                                subgraph.edge(other_node_name, max_plus_name)
+                            print("ADDING EDGE", f"{max_plus_name} -> {node_name} ({node_name})")
+                            subgraph.edge(max_plus_name, node_name)
+                            success = True
+                            continue
+
+                        other_node_name = self.__plus(var.name, var.delay)
+                        if other_node_name in nodes:
+                            print("ADDING EDGE", f"{other_node_name} -> {node_name} ({node_name})")
+                            subgraph.edge(other_node_name, node_name)
+                            success = True
+                        else:
+                            print("ERROR", f"{other_node_name} not found! ({node_name})")
+                    """
+                    # TODO: needs refactoring
+                    if not success:
+                        for max_var in max_vars:
+                            other_function = max_vars[max_var]
+                            other_inputs = [n.name for n in other_function]
+                            diff = None
+                            success = True
+                            for var in function:
+                                if var.name in other_inputs:
+                                    idx = other_inputs.index(var.name)
+                                    if diff is None:
+                                        diff = var.delay - other_function[idx].delay
+                                        if diff < 0:
+                                            print("NEGATIVE DELAY", diff, output, var)
                                             success = False
                                             break
-                                if success and diff:
-                                    other_node_name = self.__max(other_function)
-                                    plus_node_name = self.__plus(other_node_name, diff)
-                                    #del nodes[node_name]
-                                    if plus_node_name not in nodes:
-                                        node = subgraph.node(node_name, label=f"+{diff}", shape='ellipse')
-                                        nodes[plus_node_name] = node
-                                    #subgraph.edge(other_node_name, plus_node_name)
-                                    #subgraph.edge(plus_node_name, node_name)
-                                    subgraph.edge(other_node_name, node_name)
-                                    break
-
-                    subgraph.edge(node_name, self.__output(output))
+                                        continue
+                                    if var.delay - other_function[idx].delay != diff:
+                                        print("DIFFERENT DELAY", diff, output, var)
+                                        success = False
+                                        break
+                            if success and diff:
+                                other_node_name = self.__max(other_function)
+                                plus_node_name = self.__plus(other_node_name, diff)
+                                #del nodes[node_name]
+                                if plus_node_name not in nodes:
+                                    node = subgraph.node(node_name, label=f"+{diff}", shape='ellipse')
+                                    nodes[plus_node_name] = node
+                                #subgraph.edge(other_node_name, plus_node_name)
+                                #subgraph.edge(plus_node_name, node_name)
+                                subgraph.edge(other_node_name, node_name)
+                                break
+                    """
 
                 temp_file = temp_dir / f"{block_name}.dot"
                 with temp_file.open('w') as f:
@@ -154,4 +176,4 @@ class DelayGraphViewer:
         return f"plus_{value}_{name}"
 
     def __max(self, function):
-        return ("max_" + f"{function}".replace(" + ", "_").replace(",", "_").replace(" ", "").replace("[", "").replace("]", ""))
+        return ("max_" + function) #f"{function}".replace(" + ", "_").replace(",", "_").replace(" ", "").replace("[", "").replace("]", ""))
