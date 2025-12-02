@@ -321,7 +321,7 @@ class DelayGraph:
             # other alias is multiple of this alias
             print(f"WARN: alias '{output_name}' is covered by '{other_output}' (distance: {distance})!")
             # update old alias
-            outputs[other_output] = [SymbolicDelay(other_output, -distance)]
+            outputs[other_output] = [SymbolicDelay(output_name, -distance)]
             del aliases[other_output]
             # update all references to old alias
             for n in nodes:
@@ -330,7 +330,7 @@ class DelayGraph:
                         print(f"WARN: -> updated '{n}'!")
                         var.name   = output_name
                         var.delay += -distance
-            return
+            break
         # save new alias
         aliases[output_name] = alias
         # update output of this node to alias
