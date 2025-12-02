@@ -109,7 +109,7 @@ class DelayGraphViewer:
                     if output_var not in alias_names:
                         # if output is made up of multiple edges -> create max node
                         if len(function) > 1:
-                            node = subgraph.node(node_name, label="max", shape='ellipse', **self._outputnode_style)
+                            node = subgraph.node(node_name, label="max", shape='ellipse', **self._output_node_style)
                             subgraph.edge(node_name, self.__output(output_var))
                         # else forward to output node
                         else:
