@@ -25,8 +25,16 @@ from backends.common import dirUtils as dir_utils
 
 class DelayGraphViewer:
 
-    def __init__(self):
-        self.tempDirBase = pathlib.Path(__file__).parent / "temp"
+    def __init__(self):        
+        self.enforce_input_order  = False
+        self.enforce_output_order = False
+        self.enforce_inputs_on_same_level  = False
+        self.enforce_outputs_on_same_level = False
+        self._input_node_style  = {"style":'filled', "fillcolor":'lightyellow'}
+        self._output_node_style = {"style":'filled', "fillcolor":'lightblue'}
+        self._alias_node_style  = {"style":'filled', "fillcolor":'lightgray'}
+
+        self._temp_dir = pathlib.Path(__file__).parent / "temp"
 
     def execute(self, delay_grah, out_dir):
 
@@ -38,7 +46,7 @@ class DelayGraphViewer:
 
             # Make sure output directories and temp directory exist
             print(f" > Creating output directories for '{variant_name}'")
-            temp_dir = self.tempDirBase / variant_name
+            temp_dir = self._temp_dir / variant_name
             dir_utils.createOrReplaceDir(temp_dir, suppress_warning=True)
             out_dir = out_dir / variant_name / "doc_delay"
 
@@ -50,113 +58,82 @@ class DelayGraphViewer:
                 dot_graph = graphviz.Digraph(comment=block_name)
                 dot_graph.attr(rankdir='TB')
 
-                basic_block = variant[block_name]
+                outputs = variant[block_name]
 
-                outputs = [n for n in basic_block]
-                inputs  = set(var.name for o in outputs for var in basic_block[o] if not var.name.startswith("o_"))
-                #outputs = sorted(outputs)
-                inputs  = sorted(list(inputs))
-
-                nodes = {}
-
+                output_names = [n for n in outputs]
+                alias_names  = set(var.name for o in output_names for var in outputs[o] if var.name.startswith("o_"))
+                input_names  = set(var.name for o in output_names for var in outputs[o] if var.name not in alias_names)
+                output_names = sorted(list(output_names))
+                input_names  = sorted(list(input_names))
+                
+                # create input nodes
                 with dot_graph.subgraph() as subgraph:
-                    subgraph.attr(rank='min')
+                    if self.enforce_inputs_on_same_level:
+                        subgraph.attr(rank='min')
                     prev_node = None
-                    for in_node in inputs:
-                        node = subgraph.node(self.__input(in_node), label=in_node, shape='box')
-                        nodes[self.__input(in_node)] = node
-                        #if prev_node is not None:
-                        #    subgraph.edge(self.__input(prev_node), self.__input(in_node), style='invis')
-                        prev_node = in_node
+                    for input_var in input_names:
+                        node_name = self.__input(input_var)
+                        node = subgraph.node(node_name, label=input_var, shape='box', **self._input_node_style)
+                        if self.enforce_input_order and prev_node is not None:
+                            subgraph.edge(prev_node, node_name, style='invis')
+                        prev_node = node_name
 
+                # create output nodes
                 with dot_graph.subgraph() as subgraph:
-                    subgraph.attr(rank='max')
+                    if self.enforce_outputs_on_same_level:
+                        subgraph.attr(rank='max')
                     prev_node = None
-                    for out_node in outputs:
-                        node = subgraph.node(self.__output(out_node), label=out_node, shape='box')
-                        nodes[self.__output(out_node)] = node
-                        #if prev_node is not None:
-                        #    subgraph.edge(self.__output(prev_node), self.__output(out_node), style='invis')
-                        prev_node = out_node
+                    for output_var in output_names:
+                        node_name = self.__output(output_var)
+                        node = subgraph.node(node_name, label=output_var.replace("o_", ""), shape='box', **self._output_node_style)
+                        if self.enforce_output_order and prev_node is not None:
+                            subgraph.edge(prev_node, node_name, style='invis')
+                        prev_node = node_name
 
                 subgraph = dot_graph
-                min_vars = []
-                for input_var in inputs:
-                    min_var = min([v.delay for o in outputs for v in basic_block[o] if v.name == input_var])
-                    node = subgraph.node(self.__plus(input_var, min_var), label=f"+{min_var}", shape='ellipse') # plus
-                    nodes[self.__plus(input_var, min_var)] = node
-                    subgraph.edge(self.__input(input_var), self.__plus(input_var, min_var))
-                    min_vars.append(min_var)
 
-                max_vars = {}
-                for output in outputs:
-                    function = basic_block[output]
-                    node_name = self.__max(output)
-                    if node_name in nodes:
-                        subgraph.edge(node_name, self.__output(output))
-                        continue
-                    node = subgraph.node(node_name, label="max", shape='ellipse') # max
-                    subgraph.edge(node_name, self.__output(output))
-                    nodes[node_name] = node
-                    max_vars[node_name] = function
+                # create all plus nodes originating from input nodes
+                for input_var in input_names:
+                    self.__generate_out_edges(subgraph, input_var, self.__input, output_names, outputs, **self._input_node_style)
 
-                    success = False
-                    for var in function:
-                        other_node_name = self.__max(var.name)
+                # create alias nodes (max nodes) and create all plus nodes originating from alias nodes
+                for alias_var in alias_names:
+                    node_name = self.__max(alias_var)
+                    node = subgraph.node(node_name, label="max", shape='ellipse', **self._alias_node_style)
+                    self.__generate_out_edges(subgraph, alias_var, self.__max, output_names, outputs, **self._alias_node_style)
 
-                        if other_node_name in max_vars:
-                            max_plus_name = self.__plus(self.__max(var.name), var.delay)
-                            if not max_plus_name in nodes:
-                                node = subgraph.node(max_plus_name, label=f"+{var.delay}", shape='ellipse') # plus
-                                nodes[max_plus_name] = node
-                                print("ADDING EDGE", f"{other_node_name} -> {max_plus_name} ({node_name})")
-                                subgraph.edge(other_node_name, max_plus_name)
-                            print("ADDING EDGE", f"{max_plus_name} -> {node_name} ({node_name})")
-                            subgraph.edge(max_plus_name, node_name)
-                            success = True
-                            continue
-
-                        other_node_name = self.__plus(var.name, var.delay)
-                        if other_node_name in nodes:
-                            print("ADDING EDGE", f"{other_node_name} -> {node_name} ({node_name})")
-                            subgraph.edge(other_node_name, node_name)
-                            success = True
+                # connect outputs
+                for output_var in output_names:
+                    node_name = self.__max(output_var)
+                    function  = outputs[output_var]
+                    if output_var not in alias_names:
+                        # if output is made up of multiple edges -> create max node
+                        if len(function) > 1:
+                            node = subgraph.node(node_name, label="max", shape='ellipse', **self._outputnode_style)
+                            subgraph.edge(node_name, self.__output(output_var))
+                        # else forward to output node
                         else:
-                            print("ERROR", f"{other_node_name} not found! ({node_name})")
-                    """
-                    # TODO: needs refactoring
-                    if not success:
-                        for max_var in max_vars:
-                            other_function = max_vars[max_var]
-                            other_inputs = [n.name for n in other_function]
-                            diff = None
-                            success = True
-                            for var in function:
-                                if var.name in other_inputs:
-                                    idx = other_inputs.index(var.name)
-                                    if diff is None:
-                                        diff = var.delay - other_function[idx].delay
-                                        if diff < 0:
-                                            print("NEGATIVE DELAY", diff, output, var)
-                                            success = False
-                                            break
-                                        continue
-                                    if var.delay - other_function[idx].delay != diff:
-                                        print("DIFFERENT DELAY", diff, output, var)
-                                        success = False
-                                        break
-                            if success and diff:
-                                other_node_name = self.__max(other_function)
-                                plus_node_name = self.__plus(other_node_name, diff)
-                                #del nodes[node_name]
-                                if plus_node_name not in nodes:
-                                    node = subgraph.node(node_name, label=f"+{diff}", shape='ellipse')
-                                    nodes[plus_node_name] = node
-                                #subgraph.edge(other_node_name, plus_node_name)
-                                #subgraph.edge(plus_node_name, node_name)
-                                subgraph.edge(other_node_name, node_name)
-                                break
-                    """
+                            node_name = self.__output(output_var)
+                    else:
+                        # create edge from max node to output node
+                        subgraph.edge(node_name, self.__output(output_var))
+                    edges = {}
+                    for var in function:
+                        if var.delay == 0:
+                            # if zero is no added delay refer to the correspoding source node
+                            if var.name in alias_names:
+                                subgraph.edge(self.__max(var.name), node_name)
+                            else:
+                                subgraph.edge(self.__input(var.name), node_name)
+                            continue
+                        # avoid duplicate edges
+                        if not var.name in edges:
+                            edges[var.name] = []
+                        elif var.delay in edges[var.name]:
+                            continue
+                        # create edge between plus node and output node
+                        subgraph.edge(self.__plus(var.name, var.delay), node_name)
+                        edges[var.name].append(var.delay)
 
                 temp_file = temp_dir / f"{block_name}.dot"
                 with temp_file.open('w') as f:
@@ -166,11 +143,28 @@ class DelayGraphViewer:
                 os.system(f"dot -Tpdf {block_name}.dot -o {block_name}.pdf")
                 os.replace(f"{str(temp_dir)}/{block_name}.pdf", f"{str(out_dir / block_name)}/{block_name}_delay_graph.pdf")
 
+    def __generate_out_edges(self, subgraph, var_name, func, output_names, outputs, **kwargs):
+        edges = []
+        for output in output_names:
+            for var in outputs[output]:
+                if var.name != var_name:
+                    continue
+                if var.delay == 0:
+                    continue
+                # avoid duplicate edges
+                if var.delay in edges:
+                    continue
+                node_name = self.__plus(var.name, var.delay)
+                node = subgraph.node(node_name, label=f"+{var.delay}", shape='ellipse', **kwargs)
+                #nodes[node_name] = node
+                subgraph.edge(func(var.name), node_name)
+                edges.append(var.delay)
+
     def __input(self, name):
         return ("in_" + name)
 
     def __output(self, name):
-        return ("out_" + name)
+        return name #("out_" + name)
 
     def __plus(self, name, value):
         return f"plus_{value}_{name}"
