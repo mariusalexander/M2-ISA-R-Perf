@@ -109,8 +109,6 @@ class BlockSchedulingTransformer:
         }
         self._branch_prediction_models  = ["staBranchPredModel", "dynBranchPredModel"]
         self._supported_models = self._register_models + self._branch_prediction_models
-
-        self._dummies = {}
         
     def transform(self, sched_model:SchedulingModel, block_descriptions:List[BasicBlockDescription]) -> SchedulingModel:
         """
