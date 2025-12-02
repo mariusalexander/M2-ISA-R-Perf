@@ -25,11 +25,17 @@ from backends.common import dirUtils as dir_utils
 
 class DelayGraphViewer:
 
-    def __init__(self):        
-        self.enforce_input_order  = False
-        self.enforce_output_order = False
-        self.enforce_inputs_on_same_level  = False
+    def __init__(self):
+        # whether to attempt to keep the order for the nodes (here alphabetical)
+        self.prefer_input_order  = False
+        self.prefer_output_order = False
+        # whether to enforce the same y-pos for the nodes
+        self.enforce_inputs_on_same_level  = True
         self.enforce_outputs_on_same_level = False
+        # whether to generate a single input node for each input
+        # -> setting this to `False` can improve readability for complex graphs
+        self.generate_unique_input_nodes   = False
+
         self._input_node_style  = {"style":'filled', "fillcolor":'lightyellow'}
         self._output_node_style = {"style":'filled', "fillcolor":'lightblue'}
         self._alias_node_style  = {"style":'filled', "fillcolor":'lightgray'}
@@ -68,15 +74,27 @@ class DelayGraphViewer:
                 
                 # create input nodes
                 with dot_graph.subgraph() as subgraph:
-                    if self.enforce_inputs_on_same_level:
-                        subgraph.attr(rank='min')
-                    prev_node = None
-                    for input_var in input_names:
-                        node_name = self.__input(input_var)
+                    # helper function
+                    def generate_input_node(input_var, delay, prev_node):
+                        node_name = self.__input(input_var, delay)
                         node = subgraph.node(node_name, label=input_var, shape='box', **self._input_node_style)
-                        if self.enforce_input_order and prev_node is not None:
+                        if self.prefer_input_order and prev_node is not None:
                             subgraph.edge(prev_node, node_name, style='invis')
                         prev_node = node_name
+
+                    if self.enforce_inputs_on_same_level:
+                        subgraph.attr(rank='min')
+
+                    prev_node = None
+                    if not self.generate_unique_input_nodes:
+                        for input_var in input_names:
+                            for output in output_names:
+                                for var in outputs[output]:
+                                    if var.name == input_var:
+                                        generate_input_node(input_var, var.delay, prev_node)
+                    else: 
+                        for input_var in input_names:
+                            generate_input_node(input_var, 0, prev_node)
 
                 # create output nodes
                 with dot_graph.subgraph() as subgraph:
@@ -86,7 +104,7 @@ class DelayGraphViewer:
                     for output_var in output_names:
                         node_name = self.__output(output_var)
                         node = subgraph.node(node_name, label=output_var.replace("o_", ""), shape='box', **self._output_node_style)
-                        if self.enforce_output_order and prev_node is not None:
+                        if self.prefer_output_order and prev_node is not None:
                             subgraph.edge(prev_node, node_name, style='invis')
                         prev_node = node_name
 
@@ -124,7 +142,7 @@ class DelayGraphViewer:
                             if var.name in alias_names:
                                 subgraph.edge(self.__max(var.name), node_name)
                             else:
-                                subgraph.edge(self.__input(var.name), node_name)
+                                subgraph.edge(self.__input(var.name, var.delay), node_name)
                             continue
                         # avoid duplicate edges
                         if not var.name in edges:
@@ -143,7 +161,7 @@ class DelayGraphViewer:
                 os.system(f"dot -Tpdf {block_name}.dot -o {block_name}.pdf")
                 os.replace(f"{str(temp_dir)}/{block_name}.pdf", f"{str(out_dir / block_name)}/{block_name}_delay_graph.pdf")
 
-    def __generate_out_edges(self, subgraph, var_name, func, output_names, outputs, **kwargs):
+    def __generate_out_edges(self, subgraph, var_name, source_node_func, output_names, outputs, **kwargs):
         edges = []
         for output in output_names:
             for var in outputs[output]:
@@ -156,18 +174,22 @@ class DelayGraphViewer:
                     continue
                 node_name = self.__plus(var.name, var.delay)
                 node = subgraph.node(node_name, label=f"+{var.delay}", shape='ellipse', **kwargs)
-                #nodes[node_name] = node
-                subgraph.edge(func(var.name), node_name)
+                if source_node_func == self.__input:
+                    subgraph.edge(source_node_func(var.name, var.delay), node_name)
+                else:
+                    subgraph.edge(source_node_func(var.name), node_name)
                 edges.append(var.delay)
 
-    def __input(self, name):
+    def __input(self, name:str, delay:int) -> str:
+        if not self.generate_unique_input_nodes:
+            return ("in_" + name + str(delay))
         return ("in_" + name)
 
-    def __output(self, name):
+    def __output(self, name:str) -> str:
         return name #("out_" + name)
 
-    def __plus(self, name, value):
+    def __plus(self, name:str, value:int) -> str:
         return f"plus_{value}_{name}"
 
-    def __max(self, function):
-        return ("max_" + function) #f"{function}".replace(" + ", "_").replace(",", "_").replace(" ", "").replace("[", "").replace("]", ""))
+    def __max(self, name:str) -> str:
+        return ("max_" + name)

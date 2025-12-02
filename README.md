@@ -1,7 +1,7 @@
 # M2-ISA-R-Perf
 M2-ISA-R-Perf is a code generator for the SWEvalLib plugin library of ETISS. It main objectives are:
 - Generating microarchitecture specific source files for the performance estimator backend (scheduling functions + timing variables)
-- Generating matching monitor description (.json) for generation of monitor and channel source files (e.g. with M2ISAR) 
+- Generating matching monitor description (.json) for generation of monitor and channel source files (e.g. with M2ISAR)
 
 M2-ISA-R-Perf uses the CorePerfDSL description language as an input format. You can find example versions in the [CorePerfDSL-Examples](https://github.com/tum-ei-eda/CorePerfDSL-Examples) repository.
 
@@ -44,6 +44,7 @@ Run the entire tool chain like this:
 - c: Generate performance estimator source files
 - i: Generate documentation
 - m: Generate monitor description file
+- b: Generate a scheduling model for given basic blocks. Can be combined with -i and -c
 
 Use the help option to get an overview of supported input arguments:
 
