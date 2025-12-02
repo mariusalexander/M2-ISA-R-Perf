@@ -56,7 +56,8 @@ class SymbolicDelay:
         """
         Yields the amount of times `term_a` occures into `term_b`
         """
-        assert len(term_a) <= len(term_b)
+        if len(term_a) > len(term_b):
+            return None
 
         diff = None
         for var in term_a:
@@ -126,25 +127,14 @@ class SymbolicDelay:
             
         print(f"WARN: failed to merge '{", ".join(matched)}'!")
         # check all aliases for a better match
-        #covering_alias  = SymbolicDelay.__find_best_alias(expanded_term, aliases=aliases, matched=aliases)
-        last_alias_name = None
-        for alias_name in aliases:
-            alias    = aliases[alias_name]
-            distance = SymbolicDelay.Distance(alias, expanded_term)
-            if distance is not None:
-                print(f"INFO: alias '{alias_name}' covers unmatched term! (distance: {distance})")
-                if last_alias_name is not None:
-                    print("WARN: term can be covered by multiple aliases, which to chose?")
-                    assert False, "term can be covered by multiple aliases"
-                last_alias_name = alias_name
+        covering_alias  = SymbolicDelay.__find_best_alias(expanded_term, aliases=aliases, matched=aliases)
 
-        if last_alias_name is None:
-            # unsure how to proceed. My guess would be to return the expanded term instead
-            raise RuntimeError(f"No alias variable covers the term {expanded_term}!")
-
-        # dummy variable should be expanded with correct delay
-        dummy_variable = SymbolicDelay(last_alias_name)
-        return SymbolicDelay.Max(*variables, dummy_variable, aliases=aliases)
+        if covering_alias is not None:
+            print(f"INFO: alias '{covering_alias.name}' covers unmatched term! (distance: {covering_alias.delay})")
+            return SymbolicDelay.__repack_term(expanded_term=expanded_term, alias_variable=covering_alias, aliases=aliases)
+            
+        print(f"WARN: failed to cover unmatched term!")
+        return expanded_term
 
     @staticmethod
     def __find_best_alias(expanded_term:MaxTerm, aliases:Dict[str,MaxTerm]={}, matched:List[str]=[]) -> Optional['SymbolicDelay']:
@@ -154,16 +144,24 @@ class SymbolicDelay:
         """
         last_name     = None
         last_distance = None
+        last_len      = 0
         for name in matched:
             term     = aliases[name]
             distance = SymbolicDelay.Distance(term, expanded_term)
             if distance is None:
                 continue
-            if last_name is None or distance < last_distance:
-                if last_name is not None:
-                    print(f"INFO: alias '{name}' deemed more optimal than '{last_name}'!")
-                last_name     = name
-                last_distance = distance
+            if last_name is not None:
+                curr_len = len(term) 
+                if curr_len < last_len:
+                    continue
+                # keep last alias if its scores a lower distance
+                if curr_len == last_len and distance > last_distance:
+                    continue
+                print(f"INFO: alias '{name}' deemed more optimal than '{last_name}'!")
+            last_name     = name
+            last_distance = distance
+            last_len      = len(term)
+
         return SymbolicDelay(last_name, last_distance) if last_distance is not None else None
 
     @staticmethod
