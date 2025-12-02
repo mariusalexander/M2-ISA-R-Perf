@@ -98,9 +98,10 @@ class BlockSchedulingTransformer:
     """Block Scheduling Transformer"""
 
     def __init__(self):
-        self._id=1024
+        self._id = 1024
         # whether to use more descriptive names for edges to registers, like 'r2 (Xa)' instead of 'Xa' 
-        self._rename_edges = True 
+        self.rename_edges = True 
+        # TODO: infer these attributes dynamically from core perf dsl or the struct model
         self._register_count   = 32
         self._register_models  = ["regModel", "clobberModel"]
         self._target_register_mapping = {
@@ -304,7 +305,7 @@ class BlockSchedulingTransformer:
         last_node  = registers[registerNo]
         if not last_node:
             print (f"    > Resolved {model}: Node '{block_node.name}' uses 'r{registerNo} ({edge.name})'")
-            edge_name = f"r{registerNo} ({edge.name})" if self._rename_edges else edge.name
+            edge_name = f"r{registerNo} ({edge.name})" if self.rename_edges else edge.name
             block_node.createDynamicInEdge(edge_name, model) # append edge
             return
         print (f"    > Resolved {model}: Node '{block_node.name}' uses 'r{registerNo} ({edge.name})' set by '{last_node.name}'")
@@ -328,7 +329,7 @@ class BlockSchedulingTransformer:
                     continue
                 target_register = self._target_register_mapping[model]
                 print (f"    > Resolved register: Node '{block_node.name}' outputs 'r{registerNo} ({target_register})' ({model})")
-                edge_name = f"r{registerNo} ({target_register})" if self._rename_edges else target_register
+                edge_name = f"r{registerNo} ({target_register})" if self.rename_edges else target_register
                 block_node.createDynamicOutEdge(edge_name, model)
 
     def __resolveBranchPredictionInEdge(self, block_node:Node, edge:StaticEdge, block_idx:int, model:str):

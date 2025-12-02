@@ -76,7 +76,7 @@ if args.block_transform:
     r = AbiRegisters()
 
     descs = []
-    
+
     desc = BasicBlockDescription("combo_bb_1", 0x100047c)
     desc.addInstruction("addi", rd =r.sp , rs1=r.sp, imm=(-0x1b0))
     desc.addInstruction("sw"  , rs1=r.s0 , rs2=r.sp)
@@ -97,11 +97,15 @@ if args.block_transform:
     desc.addInstruction("add" , rd=16, rs1=15, rs2=7)
     desc.addInstruction("add" , rd=15, rs1=15, rs2=16)
     descs.append(desc)
-    
+
     desc = BasicBlockDescription("combo_lw_addi_sw", 0x000003c4)
     desc.addInstruction("lw"  , rd=3 , rs1=2)
     desc.addInstruction("addi", rd=4, rs1=3, imm=16)
     desc.addInstruction("sw"  , rs1=3, rs2=4)
+    descs.append(desc)
+
+    desc = BasicBlockDescription("combo_addi", 0x000003c4)
+    desc.addInstruction("addi", rd=4, rs1=3, imm=255)
     descs.append(desc)
 
     blockSchedule = BlockSchedulingTransformer().transform(schedModel, descs)
@@ -109,5 +113,5 @@ if args.block_transform:
         BasicBlockTestGenerator().execute(schedModel, blockSchedule, descs, outDir)
     if args.info_print:
         SchedulingModelViewer().execute(blockSchedule, outDir, cluster=False)
-    delayGraph = DelayGraph().transform(blockSchedule)
+    delayGraph = DelayGraph().transform(blockSchedule, unroll_delays=False)
     DelayGraphViewer().execute(delayGraph, outDir)
