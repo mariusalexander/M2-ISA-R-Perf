@@ -41,9 +41,16 @@ class SymbolicDelay:
         return SymbolicDelay(self.name, self.delay + delay)
 
     @staticmethod
+    def HasVariable(variable_name:str, variables:MaxTerm) -> bool:
+        for v in variables:
+            if v.name == variable_name:
+                return True
+        return False
+
+    @staticmethod
     def Expand(*variables:'SymbolicDelay', aliases:Dict[str,MaxTerm]={}) -> MaxTerm:
         """
-        Expands all alias variables by the corresponding term. 
+        Expands all alias variables by the corresponding term.
         Returns a minimized term.
         """
         expanded = [a.merge(v.delay) for v in variables if v.name in aliases for a in aliases[v.name]] + \
@@ -62,7 +69,7 @@ class SymbolicDelay:
         diff = None
         for var in term_a:
             other_var = list(filter(lambda v: v.name == var.name, term_b))
-            # variable not present in other term 
+            # variable not present in other term
             if len(other_var) == 0:
                 return None
             assert len(other_var) == 1, f"Duplicate variable '{var.name}'!"
@@ -79,7 +86,7 @@ class SymbolicDelay:
     def Max(*variables:'SymbolicDelay', aliases:Dict[str,MaxTerm]={}) -> MaxTerm:
         """
         Minimizes the list of variables. Each variable is listed exactly once.
-        Alias variables are resolved such that the best fitting alias variable is used which yielding the smallest term. 
+        Alias variables are resolved such that the best fitting alias variable is used which yielding the smallest term.
         """
         # no need to resolve term
         if len(variables) <= 1:
@@ -103,8 +110,8 @@ class SymbolicDelay:
     @staticmethod
     def __sort(term:MaxTerm) -> MaxTerm:
         """
-        Sorts the max term by its delay (descending). 
-        For variables with same delay, alphabetical order is used. 
+        Sorts the max term by its delay (descending).
+        For variables with same delay, alphabetical order is used.
         """
         # sort by delay and then by name
         return list(sorted(term, key=lambda v: (-v.delay, v.name)))
@@ -124,7 +131,7 @@ class SymbolicDelay:
 
         if covering_alias is not None:
             return SymbolicDelay.__repack_term(expanded_term=expanded_term, alias_variable=covering_alias, aliases=aliases)
-            
+
         print(f"WARN: failed to merge '{", ".join(matched)}'!")
         # check all aliases for a better match
         covering_alias  = SymbolicDelay.__find_best_alias(expanded_term, aliases=aliases, matched=aliases)
@@ -132,7 +139,7 @@ class SymbolicDelay:
         if covering_alias is not None:
             print(f"INFO: alias '{covering_alias.name}' covers unmatched term! (distance: {covering_alias.delay})")
             return SymbolicDelay.__repack_term(expanded_term=expanded_term, alias_variable=covering_alias, aliases=aliases)
-            
+
         print(f"WARN: failed to cover unmatched term!")
         return expanded_term
 
@@ -151,7 +158,8 @@ class SymbolicDelay:
             if distance is None:
                 continue
             if last_name is not None:
-                curr_len = len(term) 
+                # prefer if alias covers more variables
+                curr_len = len(term)
                 if curr_len < last_len:
                     continue
                 # keep last alias if its scores a lower distance
@@ -188,9 +196,9 @@ class DelayGraph:
 
     def transform(self, block_model:SchedulingModel, unroll_delays=False):
         """
-        Transforms a (block) scheduling model into a delay graph. 
+        Transforms a (block) scheduling model into a delay graph.
         For each scheduling function a dict of its outputs and the respective delay functions (max term) is returned.
-        Setting `unroll_delays` to `True` will yield a delay graph with a depth of one, i.e. no max terms are shared. 
+        Setting `unroll_delays` to `True` will yield a delay graph with a depth of one, i.e. no max terms are shared.
         """
         print("-- BACKENDS: DELAY_GRAPH --")
         self.unroll_delays = unroll_delays
@@ -219,7 +227,9 @@ class DelayGraph:
         outputs = {}
         # variables that are an alias for a max term
         aliases = {}
-        
+
+        self._variable_names = {}
+
         # find all root nodes
         queue   = deque([n for n in block_function.getAllNodes() if len(n.getAllInNodes()) == 0])
         while queue:
@@ -258,13 +268,15 @@ class DelayGraph:
 
     def __get_inputs(self, node:Node, nodes:Dict[str, MaxTerm]):
         """
-        Accumulates all input variables for the given node. 
+        Accumulates all input variables for the given node.
         Returns a non-simplified term.
         """
         sym_vars = []
         # append in edges to function
         for in_edge in node.getAllInEdges():
             var_name = self.__variable_name(in_edge)
+            if var_name == 'r0':
+                continue
             sym_var = SymbolicDelay(var_name, node.delay)
             sym_vars.append(sym_var)
         # append in node to function
@@ -280,7 +292,7 @@ class DelayGraph:
 
     def __set_output(self, node:Node, outputs:Dict[str, MaxTerm], function:MaxTerm):
         """
-        Sets the node's function to all outputs of this node. 
+        Sets the node's function to all outputs of this node.
         Yields the name of the last output that was set (if any)
         """
         alias_name = None
@@ -288,54 +300,93 @@ class DelayGraph:
             var_name = self.__variable_name(edge, prefix="o_")
             outputs[var_name] = function
             alias_name = var_name
+            print(f"     -> sets '{alias_name}'")
         return alias_name
 
-    def __update_aliases(self, 
+    def __update_aliases(self,
                          node_name:str,
-                         nodes:Dict[str, MaxTerm], 
+                         nodes:Dict[str, MaxTerm],
                          output_name:str,
-                         outputs:Dict[str, MaxTerm], 
+                         outputs:Dict[str, MaxTerm],
                          aliases:Dict[str, MaxTerm]):
         """
-        Creates an alias for the function of the current node, if no other alias covers this node. 
+        Creates an alias for the function of the current node, if no other alias covers this node.
         Otherwise, all references are updated.
         """
         # unroll function for alias
         alias = SymbolicDelay.Expand(*nodes[node_name], aliases=aliases)
         # check if alias is covered by other alias
-        for other_output in aliases:
-            other_alias = aliases[other_output]
+        last_alias_name     = None
+        last_alias_distance = None
+        last_alias_len      = 0
+
+        for other_alias_name in aliases:
+            if len(nodes[node_name]) == 1:
+                break
+            other_alias = aliases[other_alias_name]
             # terms of different length cannot be compatible
-            if len(other_alias) != len(alias):
+            if len(other_alias) > len(alias):
+                print (f"INFO: {other_alias_name} is no compatible with {output_name}")
                 continue
             distance = SymbolicDelay.Distance(other_alias, alias)
             if distance is None: # not a multiple
+                print (f"INFO: {other_alias_name} cannot cover {output_name}")
                 continue
-            if distance >= 0:
-                # link to other alias
-                function = [SymbolicDelay(other_output, distance)]
-                outputs[output_name] = function
-                # update output of this node
-                nodes[node_name]     = function
-                return
-            # other alias is multiple of this alias
-            print(f"WARN: alias '{output_name}' is covered by '{other_output}' (distance: {distance})!")
-            # update old alias
-            outputs[other_output] = [SymbolicDelay(output_name, -distance)]
-            del aliases[other_output]
-            # update all references to old alias
-            for n in nodes:
-                for var in nodes[n]:
-                    if var.name == other_output:
-                        print(f"WARN: -> updated '{n}'!")
-                        var.name   = output_name
-                        var.delay += -distance
-            break
+            print(f"INFO: alias '{output_name}' is covered by '{other_alias_name}' (distance: {distance})!")
+            if last_alias_name is not None:
+                # prefer if alias covers more variables
+                curr_len = len(other_alias)
+                if curr_len < last_alias_len:
+                    continue
+                # keep last alias if its scores a lower distance
+                if curr_len == last_alias_len and distance > last_alias_distance:
+                    continue
+                print(f"INFO: alias '{other_alias_name}' deemed more optimal than '{last_alias_name}'!")
+            last_alias_name     = other_alias_name
+            last_alias_distance = distance
+            last_alias_len      = len(other_alias)
+
+        if last_alias_name is not None:
+            other_alias_name = last_alias_name
+            other_alias = aliases[other_alias_name]
+            distance = last_alias_distance
+            if SymbolicDelay.HasVariable(other_alias_name, nodes[node_name]):
+               pass
+            else:
+                print(f"INFO: choosing alias '{other_alias_name}'!")
+                if distance >= 0:
+                    # link to other alias
+                    function = [SymbolicDelay(other_alias_name, distance)]
+                    if len(other_alias) != len(alias):
+                        extension = [v for v in alias if not SymbolicDelay.HasVariable(v.name, other_alias)]
+                        function += extension
+                        # save new alias
+                        aliases[output_name] = alias
+                        print(f"INFO: alias '{output_name}' was extended by '{", ".join([str(v) for v in extension])}'")
+                    outputs[output_name] = function
+                    # update output of this node
+                    nodes[node_name]     = function
+                    return
+                # other alias is multiple of this alias
+                if len(other_alias) != len(alias):
+                    print(f"WARN: alias has not the same length, is this an issue?")
+                #else:
+                function = [SymbolicDelay(output_name, -distance)]
+                # update old alias
+                outputs[other_alias_name] = function
+                del aliases[other_alias_name]
+                # update all references to old alias
+                for n in nodes:
+                    for var in nodes[n]:
+                        if var.name == other_alias_name:
+                            print(f"INFO: -> updated '{n}'!")
+                            var.name   = output_name
+                            var.delay += -distance
         # save new alias
         aliases[output_name] = alias
         # update output of this node to alias
         nodes[node_name]     = [SymbolicDelay(output_name)]
-            
+
     def __variable_name(self, edge:Edge, prefix:str=""):
         """
         Generates a unique but simplified variable for the given edge.

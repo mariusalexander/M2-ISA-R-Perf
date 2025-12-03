@@ -34,7 +34,7 @@ class DelayGraphViewer:
         self.enforce_outputs_on_same_level = False
         # whether to generate a single input node for each input
         # -> setting this to `False` can improve readability of edges for complex graphs but may introduce many more nodes
-        self.generate_unique_input_nodes   = False
+        self.generate_unique_input_nodes   = True
         # merges the input node with its delay, reducing overall number nodes
         # -> can only be used if `generate_unique_input_nodes` is disabled
         self.merge_input_and_plus_nodes    = False
