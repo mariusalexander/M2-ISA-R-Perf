@@ -30,17 +30,30 @@ class DelayGraphViewer:
         self.prefer_input_order  = False
         self.prefer_output_order = False
         # whether to enforce the same y-pos for the nodes
-        self.enforce_inputs_on_same_level  = True
+        self.enforce_inputs_on_same_level  = False
         self.enforce_outputs_on_same_level = False
         # whether to generate a single input node for each input
-        # -> setting this to `False` can improve readability for complex graphs
+        # -> setting this to `False` can improve readability of edges for complex graphs but may introduce many more nodes
         self.generate_unique_input_nodes   = False
+        # merges the input node with its delay, reducing overall number nodes
+        # -> can only be used if `generate_unique_input_nodes` is disabled
+        self.merge_input_and_plus_nodes    = False
+
+        # sytling
+        self._direction          = "TB" # TB, LR
+        self._edge_style         = "polyline" # spline, ortho, line polyline, curved
+        self._vertical_spacing   = 1.0
+        self._horizontal_spacing = 0.1
 
         self._input_node_style  = {"style":'filled', "fillcolor":'lightyellow'}
         self._output_node_style = {"style":'filled', "fillcolor":'lightblue'}
         self._alias_node_style  = {"style":'filled', "fillcolor":'lightgray'}
-
+        # helper varriables
         self._temp_dir = pathlib.Path(__file__).parent / "temp"
+
+        # override settings
+        if self.generate_unique_input_nodes:
+            self.merge_input_and_plus_nodes = False
 
     def execute(self, delay_grah, out_dir):
 
@@ -62,7 +75,8 @@ class DelayGraphViewer:
                 (out_dir / block_name).mkdir(parents=True, exist_ok=True)
 
                 dot_graph = graphviz.Digraph(comment=block_name)
-                dot_graph.attr(rankdir='TB')
+                dot_graph.attr(rankdir=self._direction)
+                dot_graph.attr(splines=self._edge_style, nodesep=str(self._horizontal_spacing), ranksep=str(self._vertical_spacing))
 
                 outputs = variant[block_name]
 
@@ -71,13 +85,16 @@ class DelayGraphViewer:
                 input_names  = set(var.name for o in output_names for var in outputs[o] if var.name not in alias_names)
                 output_names = sorted(list(output_names))
                 input_names  = sorted(list(input_names))
-                
+
                 # create input nodes
                 with dot_graph.subgraph() as subgraph:
                     # helper function
                     def generate_input_node(input_var, delay, prev_node):
                         node_name = self.__input(input_var, delay)
-                        node = subgraph.node(node_name, label=input_var, shape='box', **self._input_node_style)
+                        label = input_var
+                        if self.merge_input_and_plus_nodes and delay != 0:
+                            label += f"\n+{delay}"
+                        node  = subgraph.node(node_name, label=label, shape='box', **self._input_node_style)
                         if self.prefer_input_order and prev_node is not None:
                             subgraph.edge(prev_node, node_name, style='invis')
                         prev_node = node_name
@@ -92,7 +109,7 @@ class DelayGraphViewer:
                                 for var in outputs[output]:
                                     if var.name == input_var:
                                         generate_input_node(input_var, var.delay, prev_node)
-                    else: 
+                    else:
                         for input_var in input_names:
                             generate_input_node(input_var, 0, prev_node)
 
@@ -111,8 +128,9 @@ class DelayGraphViewer:
                 subgraph = dot_graph
 
                 # create all plus nodes originating from input nodes
-                for input_var in input_names:
-                    self.__generate_out_edges(subgraph, input_var, self.__input, output_names, outputs, **self._input_node_style)
+                if not self.merge_input_and_plus_nodes:
+                    for input_var in input_names:
+                        self.__generate_out_edges(subgraph, input_var, self.__input, output_names, outputs, **self._input_node_style)
 
                 # create alias nodes (max nodes) and create all plus nodes originating from alias nodes
                 for alias_var in alias_names:
@@ -148,6 +166,9 @@ class DelayGraphViewer:
                         if not var.name in edges:
                             edges[var.name] = []
                         elif var.delay in edges[var.name]:
+                            continue
+                        if self.merge_input_and_plus_nodes and var.name in input_names:
+                            subgraph.edge(self.__input(var.name, var.delay), node_name)
                             continue
                         # create edge between plus node and output node
                         subgraph.edge(self.__plus(var.name, var.delay), node_name)
