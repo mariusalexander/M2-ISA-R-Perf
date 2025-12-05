@@ -46,7 +46,7 @@ class MaxTerm(list):
         super().__init__(iterable)
 
     def __str__(self) -> str:
-        return f"max({", ".join([str(v) for v in self])})"
+        return f"({", ".join([str(v) for v in self])})"
 
     def __repr__(self) -> str:
         return self.__str__()
@@ -216,8 +216,8 @@ class DelayGraphTransformer:
         nodes   = {}
         # max term for each output indexed by its name
         outputs = {}
-        # variables that are an alias for a max term
-        aliases = {}
+        # intermediate outputs, that can be shared by other terms to produce a graph-like structure
+        intermediates = {}
 
         self._variable_names = {}
 
@@ -229,7 +229,7 @@ class DelayGraphTransformer:
 
             # create max term, discarding redundant variables
             function = self.__get_inputs(node, nodes)
-            function = function.repacked(aliases).sorted()
+            function = function.repacked(intermediates).sorted()
 
             # store function of current node
             nodes[node.name] = function
@@ -238,10 +238,10 @@ class DelayGraphTransformer:
             # set outputs if any
             output_name = self.__set_output(node, outputs, function)
 
-            # create alias if function is a max node (multiple input edges)
+            # create intermediate output if function is a max node (multiple input edges)
             if not self.unroll_delays:
                 if output_name is not None and len(function) > 1:
-                    self.__update_aliases(node.name, nodes, output_name, outputs, aliases)
+                    self.__update_intermediates(node.name, nodes, output_name, outputs, intermediates)
 
             assert not any([v.delay < 0 for v in nodes[node.name]]), f"Term of '{node.name}' contains negative cofactors!"
 
@@ -288,62 +288,60 @@ class DelayGraphTransformer:
         Sets the node's function to all outputs of this node.
         Yields the name of the last output that was set (if any)
         """
-        alias_name = None
+        intermediate = None
         for edge in node.getAllOutEdges():
             var_name = self.__variable_name(edge, prefix="o_")
             outputs[var_name] = function
-            alias_name = var_name
-            print(f"     -> sets '{alias_name}'")
-        return alias_name
+            intermediate = var_name
+            print(f"     -> sets '{intermediate}'")
+        return intermediate
 
-    def __update_aliases(self,
+    def __update_intermediates(self,
                          node_name:str,
                          nodes:Dict[str, 'MaxTerm'],
                          output_name:str,
                          outputs:Dict[str, 'MaxTerm'],
                          intermediates:Dict[str, 'MaxTerm']):
         """
-        Creates an alias for the function of the current node, if no other alias covers this node.
+        Creates an intermedaite output for the function of the current node, if no other intermediate covers this node.
         Otherwise, all references are updated.
         """
         current_term = nodes[node_name]
         expanded = current_term.expanded(intermediates)
         new_term = [SymbolicVariable(output_name)]
 
-        if len(nodes[node_name]) > 1:
-            # check if term is covered by other intermediate
-            best_match = expanded.find_best_intermediate(intermediates=intermediates, expand=False, allow_negative_distance=True)
-            if best_match is not None and best_match.name not in current_term:
-                other_term = intermediates[best_match.name]
-                if best_match.delay >= 0:
-                    print(f"INFO: intermediate '{output_name}' is a multiple of '{best_match.name}'! (distance: {best_match.delay})")
-                    # link to other intermediate
-                    new_term = MaxTerm([best_match])
-                    # add variables not in other term to new term
-                    if len(other_term) != len(expanded):
-                        extension = expanded.difference(other_term)
-                        new_term += extension
-                        intermediates[output_name] = expanded
-                        print(f"INFO: alias '{output_name}' was extended by '{", ".join([str(v) for v in extension])}'")
-                    expanded = new_term
-                else:
-                    # other alias is a negative multiple of this alias
-                    print(f"INFO: intermediate '{best_match.name}' is a negative multiple of '{output_name}'! (distance: {best_match.delay})")
-                    assert len(other_term) == len(expanded)
-                    new_term = MaxTerm([SymbolicVariable(output_name, -best_match.delay)])
-                    # update old output
-                    outputs[best_match.name] = new_term
-                    del intermediates[best_match.name]
-                    # update all references to old alias
-                    for n in nodes:
-                        for var in nodes[n]:
-                            if var.name == best_match.name:
-                                print(f"INFO: -> updated '{n}'!")
-                                var.name   = output_name
-                                var.delay += -best_match.delay
-        # save new alias
+        # check if term is covered by other intermediate
+        best_match = expanded.find_best_intermediate(intermediates=intermediates, expand=False, allow_negative_distance=True)
+        if best_match is not None and best_match.name not in current_term:
+            other_term = intermediates[best_match.name]
+            if best_match.delay >= 0:
+                print(f"INFO: intermediate '{output_name}' is a multiple of '{best_match.name}'! (distance: {best_match.delay})")
+                # link to other intermediate
+                new_term = MaxTerm([best_match])
+                # add variables not in other term to new term
+                assert len(other_term) == len(expanded)
+                #    extension = expanded.difference(other_term)
+                #    new_term += extension
+                #    intermediates[output_name] = expanded
+                #    print(f"INFO: intermedaite '{output_name}' was extended by '{", ".join([str(v) for v in extension])}'")
+                expanded = new_term
+            else:
+                # other intermediate is a negative multiple of this term
+                print(f"INFO: intermediate '{best_match.name}' is a negative multiple of '{output_name}'! (distance: {best_match.delay})")
+                assert len(other_term) == len(expanded)
+                new_term = MaxTerm([SymbolicVariable(output_name, -best_match.delay)])
+                # update old output
+                outputs[best_match.name] = new_term
+                del intermediates[best_match.name]
+                # update all references to old intermediate
+                for n in nodes:
+                    for var in nodes[n]:
+                        if var.name == best_match.name:
+                            print(f"INFO: -> updated '{n}'!")
+                            var.name   = output_name
+                            var.delay += -best_match.delay
+        # save new intermediate and update output of this node
         intermediates[output_name] = expanded
-        # update output of this node to alias
         nodes[node_name]           = new_term
 
     def __variable_name(self, edge:Edge, prefix:str=""):
@@ -382,9 +380,7 @@ class DelayGraphTransformer:
         """
         Generates a nicely readable function.
         """
-        return str(function)
-
-        text = str(function)[1:-1] # remove brackets
+        text  = str(function)
         lines = []
         while len(text) > word_wrap_at:
             try:
@@ -403,4 +399,4 @@ class DelayGraphTransformer:
         Prints the node and its function in a standardized manner. Used for stdout
         """
         function_str = DelayGraphTransformer.function_to_str(function, indent=20 + 9)
-        print(f"{" " * indent}> {name.ljust(20 - indent)} = {function_str}")
+        print(f"{" " * indent}> {name.ljust(20 - indent)} = max{function_str}")
