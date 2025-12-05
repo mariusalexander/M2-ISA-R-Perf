@@ -23,9 +23,8 @@ from typing import List, Dict, Optional, TypeAlias
 from collections import deque
 from meta_models.scheduling_model.SchedulingModel import SchedulingModel, Variant, SchedulingFunction, Node, Edge
 
-MaxTerm : TypeAlias = List['SymbolicDelay']
-
-class SymbolicDelay:
+class SymbolicVariable:
+    """Represents a variable in a max term, associated with an added delay."""
 
     def __init__(self, name:str, delay:int=0):
         self.name  = name
@@ -37,155 +36,147 @@ class SymbolicDelay:
     def __repr__(self):
         return self.__str__()
 
-    def merge(self, delay:int) -> 'SymbolicDelay':
-        return SymbolicDelay(self.name, self.delay + delay)
+    def merge(self, delay:int) -> 'SymbolicVariable':
+        return SymbolicVariable(self.name, self.delay + delay)
 
-    @staticmethod
-    def HasVariable(variable_name:str, variables:MaxTerm) -> bool:
-        for v in variables:
-            if v.name == variable_name:
-                return True
-        return False
+class MaxTerm(list):
+    """Represents a max term, made out of a list of variables."""
 
-    @staticmethod
-    def Expand(*variables:'SymbolicDelay', aliases:Dict[str,MaxTerm]={}) -> MaxTerm:
+    def __init__(self, iterable=None):
+        super().__init__(iterable)
+
+    def __str__(self) -> str:
+        return f"max({", ".join([str(v) for v in self])})"
+
+    def __repr__(self) -> str:
+        return self.__str__()
+    
+    def __add__(self, value:SymbolicVariable):
+        return super().__add__(value)
+    
+    def __contains__(self, value:str|SymbolicVariable) -> bool:
+        if isinstance(value, str):
+            assert self.count(v.name == value for v in self) <= 1, f"Duplicate variable '{value}'!"
+            return any(v.name == value for v in self)
+        assert isinstance(value, SymbolicVariable), f"Incompatible type '{type(value)}'!"
+        return value.name in self
+
+    def max_value(self, name:str) -> Optional[int]:
         """
-        Expands all alias variables by the corresponding term.
-        Returns a minimized term.
+        Returns the maximum added delay of the variable `name`.
         """
-        expanded = [a.merge(v.delay) for v in variables if v.name in aliases for a in aliases[v.name]] + \
-                   [v for v in variables if v.name not in aliases]
-        assert all([v.name not in aliases for v in expanded]), "Failed to expand all aliases!"
-        return SymbolicDelay.Max(*expanded)
+        tmp = [v.delay for v in self if v.name == name]
+        return max(tmp) if len(tmp) else None
 
-    @staticmethod
-    def Distance(term_a:MaxTerm, term_b:MaxTerm) -> Optional[int]:
+    def names(self) -> List[str]:
         """
-        Yields the amount of times `term_a` occures into `term_b`
+        Returns a list of all variable names as they appear in order.
         """
-        if len(term_a) > len(term_b):
-            return None
+        return list(dict.fromkeys([v.name for v in self])) # fromkeys keeps order
 
-        diff = None
-        for var in term_a:
-            other_var = list(filter(lambda v: v.name == var.name, term_b))
-            # variable not present in other term
-            if len(other_var) == 0:
-                return None
-            assert len(other_var) == 1, f"Duplicate variable '{var.name}'!"
-            # calculate difference
-            [other_var]  = other_var
-            current_diff = other_var.delay - var.delay
-            # difference in delay is not linear
-            if diff is not None and diff != current_diff:
-                return None
-            diff = current_diff
-        return diff
+    def expanded(self, intermediates:Dict[str, 'MaxTerm']) -> 'MaxTerm':
+        """
+        Expands (unrolls) all intermediate variables by their corresponding variables. 
+        Returns a new, simplified term.
+        """
+        expanded = MaxTerm([i.merge(v.delay) for v in self if v.name in intermediates for i in intermediates[v.name]] + \
+                           [v                for v in self if v.name not in intermediates])
+        assert all([i.name not in intermediates for i in expanded])
+        return expanded.simplified()
 
-    @staticmethod
-    def Max(*variables:'SymbolicDelay', aliases:Dict[str,MaxTerm]={}) -> MaxTerm:
+    def difference(self, other:'MaxTerm') -> 'MaxTerm':
+        """
+        Returns a new term with only the variables that `other` contains but this term does not.
+        Keeps order of names.
+        """
+        return MaxTerm(filter(lambda v: v.name not in other.names(), self)).simplified()
+
+    def simplified(self) -> 'MaxTerm':
         """
         Minimizes the list of variables. Each variable is listed exactly once.
-        Alias variables are resolved such that the best fitting alias variable is used which yielding the smallest term.
+        Keeps order of names. Returns a new term.
         """
-        # no need to resolve term
-        if len(variables) <= 1:
-            return list(variables)
+        return MaxTerm([SymbolicVariable(name, self.max_value(name)) for name in self.names()])
 
-        simplified = []
-        var_names  = set([v.name for v in variables])
-
-        # variables contains aliases that must be expanded
-        matched_aliases = [v for v in var_names if v in aliases]
-        if any(matched_aliases):
-            return SymbolicDelay.__resolve_aliases(*variables, aliases=aliases, matched=matched_aliases)
-
-        # for each variable: find entry with max static delay and discard entries with equal or less delay
-        for var_name in var_names:
-            max_value = max([var.delay for var in variables if var.name == var_name])
-            simplified.append(SymbolicDelay(var_name, max_value))
-
-        return SymbolicDelay.__sort(simplified)
-
-    @staticmethod
-    def __sort(term:MaxTerm) -> MaxTerm:
+    def repacked(self, intermediates:Dict[str, 'MaxTerm']) -> 'MaxTerm':
         """
-        Sorts the max term by its delay (descending).
+        Attempts to find a new term, that reuses an intermediate variable to simplify the term.
+        Returns a new, simplified, and sorted term.
+        """
+        expanded   = self.expanded(intermediates)
+        best_match = expanded.find_best_intermediate(intermediates, expand=False)
+        if best_match is None:
+            return expanded # no need to simplify
+        repacked = expanded.difference(intermediates[best_match.name])
+        repacked.append(best_match)
+        return repacked.sorted()
+
+    def sorted(self) -> 'MaxTerm':
+        """
+        Returns a new term sorted by its delay (descending).
         For variables with same delay, alphabetical order is used.
         """
-        # sort by delay and then by name
-        return list(sorted(term, key=lambda v: (-v.delay, v.name)))
-
-    @staticmethod
-    def __resolve_aliases(*variables:'SymbolicDelay', aliases:Dict[str,MaxTerm]={}, matched:List[str]=[]):
+        return MaxTerm(sorted(self, key=lambda v: (-v.delay, v.name)))
+    
+    def distance(self, other:'MaxTerm') -> Optional[int]:
         """
-        Helper function that resolves aliases in a term by
-         1) unrolling all alias variables
-         2) finding an alias variable in the existing term that yields in the smallest term
-         3) if none was found, all aliases are searched to find the alias variable resulting in the smallest term
+        Attempts to find a linear dependency between `self` and `other`.
+        For a linear dependency, all variables in `self` must be present in `other` with a consistent offset in their cofactors.
+        This offset is called the distance. May return a negative distance, if `self` can be expressed by `other`.
         """
-        expanded_term = SymbolicDelay.Expand(*variables, aliases=aliases)
+        # self cannot cover other if it has more variables
+        if len(self) > len(other):
+            return None
+        distance = None
+        for var in self:
+            other_delay = other.max_value(var.name)
+            if other_delay is None:
+                return None
+            # calculate difference
+            current = other_delay - var.delay
+            # difference in delay is not linear
+            if distance is not None and distance != current:
+                return None
+            distance = current
+        return distance
 
-        # find best matching alias
-        covering_alias = SymbolicDelay.__find_best_alias(expanded_term, aliases=aliases, matched=matched)
-
-        if covering_alias is not None:
-            return SymbolicDelay.__repack_term(expanded_term=expanded_term, alias_variable=covering_alias, aliases=aliases)
-
-        print(f"WARN: failed to merge '{", ".join(matched)}'!")
-        # check all aliases for a better match
-        covering_alias  = SymbolicDelay.__find_best_alias(expanded_term, aliases=aliases, matched=aliases)
-
-        if covering_alias is not None:
-            print(f"INFO: alias '{covering_alias.name}' covers unmatched term! (distance: {covering_alias.delay})")
-            return SymbolicDelay.__repack_term(expanded_term=expanded_term, alias_variable=covering_alias, aliases=aliases)
-
-        print(f"WARN: failed to cover unmatched term!")
-        return expanded_term
-
-    @staticmethod
-    def __find_best_alias(expanded_term:MaxTerm, aliases:Dict[str,MaxTerm]={}, matched:List[str]=[]) -> Optional['SymbolicDelay']:
+    def find_best_intermediate(self, intermediates:Dict[str, 'MaxTerm'], expand=True, allow_negative_distance=False) -> Optional['SymbolicVariable']:
         """
-        Helper function that attempts to find an alias variable in an existing term (the term must be unrolled),
-        such that it yields the smallest term.
+        Attempts to find an intermediate variable that best covers `self` such that it yields the smallest term.
+        `self` must be unrolled to find an intermediate.
         """
-        last_name     = None
-        last_distance = None
-        last_len      = 0
-        for name in matched:
-            term     = aliases[name]
-            distance = SymbolicDelay.Distance(term, expanded_term)
-            if distance is None:
+        this = self
+        if expand: this = self.expanded(intermediates)
+
+        last_name   = None
+        last_factor = None
+        last_len    = None
+        for name in intermediates:
+            term   = intermediates[name]
+            factor = term.distance(this)
+            if factor is None:
                 continue
+            curr_len = len(term)
+            if factor < 0:
+                # len must match if distance is negative
+                if not allow_negative_distance or curr_len != len(this):
+                    continue
             if last_name is not None:
-                # prefer if alias covers more variables
-                curr_len = len(term)
+                # prefer if variable covers more variables
                 if curr_len < last_len:
                     continue
-                # keep last alias if its scores a lower distance
-                if curr_len == last_len and distance > last_distance:
+                # keep last variable if its scores a lower
+                if curr_len == last_len and factor > last_factor:
                     continue
-                print(f"INFO: alias '{name}' deemed more optimal than '{last_name}'!")
-            last_name     = name
-            last_distance = distance
-            last_len      = len(term)
+                #print(f"INFO: intermediate '{name}' deemed more optimal than '{last_name}'!")
+            last_name   = name
+            last_factor = factor
+            last_len    = curr_len
+        if last_name is None:
+            return None
+        return SymbolicVariable(last_name, last_factor)
 
-        return SymbolicDelay(last_name, last_distance) if last_distance is not None else None
-
-    @staticmethod
-    def __repack_term(expanded_term:MaxTerm, alias_variable:'SymbolicDelay', aliases:Dict[str,MaxTerm]={}) -> MaxTerm:
-        """
-        Helper function that repacks an expanded term with the given alias variable.
-        The resulting term does not contain duplicates.
-        """
-        alias_term = aliases[alias_variable.name]
-        var_names  = [v.name for v in alias_term]
-        repacked   = list(filter(lambda v: v.name not in var_names, expanded_term))
-        repacked.append(alias_variable)
-        return SymbolicDelay.__sort(repacked)
-
-
-class DelayGraph:
+class DelayGraphTransformer:
     """Delay Graph"""
 
     def __init__(self):
@@ -237,12 +228,12 @@ class DelayGraph:
             assert node.name not in nodes
 
             # create max term, discarding redundant variables
-            term = self.__get_inputs(node, nodes)
-            function = SymbolicDelay.Max(*term, aliases=aliases)
+            function = self.__get_inputs(node, nodes)
+            function = function.repacked(aliases).sorted()
 
             # store function of current node
             nodes[node.name] = function
-            DelayGraph.print_function(node.name, function, indent=3)
+            DelayGraphTransformer.print_function(node.name, function, indent=3)
 
             # set outputs if any
             output_name = self.__set_output(node, outputs, function)
@@ -251,6 +242,8 @@ class DelayGraph:
             if not self.unroll_delays:
                 if output_name is not None and len(function) > 1:
                     self.__update_aliases(node.name, nodes, output_name, outputs, aliases)
+
+            assert not any([v.delay < 0 for v in nodes[node.name]]), f"Term of '{node.name}' contains negative cofactors!"
 
             # iterate over children if all dependencies have been met
             for next_node_i in node.getAllOutNodes():
@@ -262,35 +255,35 @@ class DelayGraph:
 
         print(f"   > outputs:")
         for output in outputs:
-            DelayGraph.print_function(output, outputs[output], indent=4)
+            DelayGraphTransformer.print_function(output, outputs[output], indent=4)
 
         return outputs
 
-    def __get_inputs(self, node:Node, nodes:Dict[str, MaxTerm]):
+    def __get_inputs(self, node:Node, nodes:Dict[str, 'MaxTerm']) -> 'MaxTerm':
         """
         Accumulates all input variables for the given node.
         Returns a non-simplified term.
         """
-        sym_vars = []
+        term = MaxTerm([])
         # append in edges to function
         for in_edge in node.getAllInEdges():
-            var_name = self.__variable_name(in_edge)
-            if var_name == 'r0':
+            name = self.__variable_name(in_edge)
+            if name == 'r0':
                 continue
-            sym_var = SymbolicDelay(var_name, node.delay)
-            sym_vars.append(sym_var)
+            variable = SymbolicVariable(name, node.delay)
+            term.append(variable)
         # append in node to function
         for in_node in node.getAllInNodes():
-            for sym_var in nodes[in_node.name]:
-                sym_vars.append(sym_var.merge(node.delay))
+            for variable in nodes[in_node.name]:
+                term.append(variable.merge(node.delay))
         # append variable delay of resource model
         if node.resourceModel:
-            var_name = self.__simplify_variable_name(node.name)
-            sym_var = SymbolicDelay(var_name, node.delay)
-            sym_vars.append(sym_var)
-        return sym_vars
+            name = self.__simplify_variable_name(node.name)
+            variable = SymbolicVariable(name, node.delay)
+            term.append(variable)
+        return term
 
-    def __set_output(self, node:Node, outputs:Dict[str, MaxTerm], function:MaxTerm):
+    def __set_output(self, node:Node, outputs:Dict[str, 'MaxTerm'], function:'MaxTerm') -> str:
         """
         Sets the node's function to all outputs of this node.
         Yields the name of the last output that was set (if any)
@@ -305,87 +298,53 @@ class DelayGraph:
 
     def __update_aliases(self,
                          node_name:str,
-                         nodes:Dict[str, MaxTerm],
+                         nodes:Dict[str, 'MaxTerm'],
                          output_name:str,
-                         outputs:Dict[str, MaxTerm],
-                         aliases:Dict[str, MaxTerm]):
+                         outputs:Dict[str, 'MaxTerm'],
+                         intermediates:Dict[str, 'MaxTerm']):
         """
         Creates an alias for the function of the current node, if no other alias covers this node.
         Otherwise, all references are updated.
         """
-        # unroll function for alias
-        alias = SymbolicDelay.Expand(*nodes[node_name], aliases=aliases)
-        # check if alias is covered by other alias
-        last_alias_name     = None
-        last_alias_distance = None
-        last_alias_len      = 0
+        current_term = nodes[node_name]
+        expanded = current_term.expanded(intermediates)
+        new_term = [SymbolicVariable(output_name)]
 
-        for other_alias_name in aliases:
-            if len(nodes[node_name]) == 1:
-                break
-            other_alias = aliases[other_alias_name]
-            # terms of different length cannot be compatible
-            if len(other_alias) > len(alias):
-                print (f"INFO: {other_alias_name} is no compatible with {output_name}")
-                continue
-            distance = SymbolicDelay.Distance(other_alias, alias)
-            if distance is None: # not a multiple
-                print (f"INFO: {other_alias_name} cannot cover {output_name}")
-                continue
-            print(f"INFO: alias '{output_name}' is covered by '{other_alias_name}' (distance: {distance})!")
-            if last_alias_name is not None:
-                # prefer if alias covers more variables
-                curr_len = len(other_alias)
-                if curr_len < last_alias_len:
-                    continue
-                # keep last alias if its scores a lower distance
-                if curr_len == last_alias_len and distance > last_alias_distance:
-                    continue
-                print(f"INFO: alias '{other_alias_name}' deemed more optimal than '{last_alias_name}'!")
-            last_alias_name     = other_alias_name
-            last_alias_distance = distance
-            last_alias_len      = len(other_alias)
-
-        if last_alias_name is not None:
-            other_alias_name = last_alias_name
-            other_alias = aliases[other_alias_name]
-            distance = last_alias_distance
-            if SymbolicDelay.HasVariable(other_alias_name, nodes[node_name]):
-               pass
-            else:
-                print(f"INFO: choosing alias '{other_alias_name}'!")
-                if distance >= 0:
-                    # link to other alias
-                    function = [SymbolicDelay(other_alias_name, distance)]
-                    if len(other_alias) != len(alias):
-                        extension = [v for v in alias if not SymbolicDelay.HasVariable(v.name, other_alias)]
-                        function += extension
-                        # save new alias
-                        aliases[output_name] = alias
+        if len(nodes[node_name]) > 1:
+            # check if term is covered by other intermediate
+            best_match = expanded.find_best_intermediate(intermediates=intermediates, expand=False, allow_negative_distance=True)
+            if best_match is not None and best_match.name not in current_term:
+                other_term = intermediates[best_match.name]
+                if best_match.delay >= 0:
+                    print(f"INFO: intermediate '{output_name}' is a multiple of '{best_match.name}'! (distance: {best_match.delay})")
+                    # link to other intermediate
+                    new_term = MaxTerm([best_match])
+                    # add variables not in other term to new term
+                    if len(other_term) != len(expanded):
+                        extension = expanded.difference(other_term)
+                        new_term += extension
+                        intermediates[output_name] = expanded
                         print(f"INFO: alias '{output_name}' was extended by '{", ".join([str(v) for v in extension])}'")
-                    outputs[output_name] = function
-                    # update output of this node
-                    nodes[node_name]     = function
-                    return
-                # other alias is multiple of this alias
-                if len(other_alias) != len(alias):
-                    print(f"WARN: alias has not the same length, is this an issue?")
-                #else:
-                function = [SymbolicDelay(output_name, -distance)]
-                # update old alias
-                outputs[other_alias_name] = function
-                del aliases[other_alias_name]
-                # update all references to old alias
-                for n in nodes:
-                    for var in nodes[n]:
-                        if var.name == other_alias_name:
-                            print(f"INFO: -> updated '{n}'!")
-                            var.name   = output_name
-                            var.delay += -distance
+                    expanded = new_term
+                else:
+                    # other alias is a negative multiple of this alias
+                    print(f"INFO: intermediate '{best_match.name}' is a negative multiple of '{output_name}'! (distance: {best_match.delay})")
+                    assert len(other_term) == len(expanded)
+                    new_term = MaxTerm([SymbolicVariable(output_name, -best_match.delay)])
+                    # update old output
+                    outputs[best_match.name] = new_term
+                    del intermediates[best_match.name]
+                    # update all references to old alias
+                    for n in nodes:
+                        for var in nodes[n]:
+                            if var.name == best_match.name:
+                                print(f"INFO: -> updated '{n}'!")
+                                var.name   = output_name
+                                var.delay += -best_match.delay
         # save new alias
-        aliases[output_name] = alias
+        intermediates[output_name] = expanded
         # update output of this node to alias
-        nodes[node_name]     = [SymbolicDelay(output_name)]
+        nodes[node_name]           = new_term
 
     def __variable_name(self, edge:Edge, prefix:str=""):
         """
@@ -419,10 +378,12 @@ class DelayGraph:
         return new_name
 
     @staticmethod
-    def function_to_str(function:MaxTerm, indent=0, word_wrap_at=150):
+    def function_to_str(function:'MaxTerm', indent=0, word_wrap_at=150):
         """
         Generates a nicely readable function.
         """
+        return str(function)
+
         text = str(function)[1:-1] # remove brackets
         lines = []
         while len(text) > word_wrap_at:
@@ -437,9 +398,9 @@ class DelayGraph:
         return f"\n{" " * (indent)}".join(lines)
 
     @staticmethod
-    def print_function(name:str, function:MaxTerm, indent=0):
+    def print_function(name:str, function:'MaxTerm', indent=0):
         """
         Prints the node and its function in a standardized manner. Used for stdout
         """
-        function_str = DelayGraph.function_to_str(function, indent=20 + 9)
-        print(f"{" " * indent}> {name.ljust(20 - indent)} = max({function_str})")
+        function_str = DelayGraphTransformer.function_to_str(function, indent=20 + 9)
+        print(f"{" " * indent}> {name.ljust(20 - indent)} = {function_str}")

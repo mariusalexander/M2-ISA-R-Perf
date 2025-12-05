@@ -34,7 +34,7 @@ from backends.structure_viewer.StructuralModelViewer import StructuralModelViewe
 from backends.schedule_viewer.SchedulingModelViewer import SchedulingModelViewer
 from backends.estimator_generator.EstimatorGenerator import EstimatorGenerator
 from backends.basic_block_tester.BasicBlockTestGenerator import BasicBlockTestGenerator
-from backends.basic_block_analyzer.DelayGraph import DelayGraph
+from backends.basic_block_analyzer.DelayGraph import DelayGraphTransformer
 from backends.basic_block_analyzer.DelayGraphViewer import DelayGraphViewer
 
 # Read command line arguments
@@ -124,5 +124,5 @@ if args.block_transform:
         BasicBlockTestGenerator().execute(schedModel, blockSchedule, descs, outDir)
     if args.info_print:
         SchedulingModelViewer().execute(blockSchedule, outDir, cluster=False)
-    delayGraph = DelayGraph().transform(blockSchedule, unroll_delays=False)
+    delayGraph = DelayGraphTransformer().transform(blockSchedule, unroll_delays=False)
     DelayGraphViewer().execute(delayGraph, outDir)
