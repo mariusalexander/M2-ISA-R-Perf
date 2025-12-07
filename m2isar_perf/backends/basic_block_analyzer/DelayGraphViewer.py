@@ -55,13 +55,13 @@ class DelayGraphViewer:
         if self.generate_unique_input_nodes:
             self.merge_input_and_plus_nodes = False
 
-    def execute(self, delay_graphs, out_dir):
+    def execute(self, delay_graph_model, out_dir):
 
         print()
         print("-- BACKEND: DELAY_GRAPH_VIEWER --")
 
-        for variant_name in delay_graphs:
-            variant = delay_graphs[variant_name]
+        for variant_name in delay_graph_model.variants:
+            variant = delay_graph_model.variants[variant_name]
 
             # Make sure output directories and temp directory exist
             print(f" > Creating output directories for '{variant_name}'")
@@ -70,7 +70,7 @@ class DelayGraphViewer:
             out_dir = out_dir / variant_name / "doc_delay"
 
             # Generate sub-dirs for each basic block function
-            for basic_block_name in variant:
+            for basic_block_name in variant.scheduling_functions:
                 assert basic_block_name
                 (out_dir / basic_block_name).mkdir(parents=True, exist_ok=True)
 
@@ -78,7 +78,7 @@ class DelayGraphViewer:
                 dot_graph.attr(rankdir=self._direction)
                 dot_graph.attr(splines=self._edge_style, nodesep=str(self._horizontal_spacing), ranksep=str(self._vertical_spacing))
 
-                delay_graph = variant[basic_block_name]
+                delay_graph = variant.scheduling_functions[basic_block_name]
 
                 output_names = delay_graph.outputs()
                 alias_names  = delay_graph.intermediates()

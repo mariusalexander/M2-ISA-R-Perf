@@ -176,6 +176,16 @@ class MaxTerm(list):
             return None
         return SymbolicVariable(last_name, last_factor)
 
+class DelayGraphModel:
+
+    def __init__(self):
+        self.variants: Dict[str, 'DelayGraphVariant'] = {}
+
+class DelayGraphVariant:
+
+    def __init__(self):
+        self.scheduling_functions: Dict[str, 'DelayGraph'] = {}
+
 class DelayGraph:
 
     def __init__(self):
@@ -262,7 +272,7 @@ class DelayGraphTransformer:
         # whether to unroll all delay functions
         self.unroll_delays = False
 
-    def transform(self, block_model:SchedulingModel, unroll_delays=False):
+    def transform(self, block_model:SchedulingModel, unroll_delays=False) -> 'DelayGraphModel':
         """
         Transforms a (block) scheduling model into a delay graph.
         For each scheduling function a dict of its outputs and the respective delay functions (max term) is returned.
@@ -270,23 +280,23 @@ class DelayGraphTransformer:
         """
         print("-- BACKENDS: DELAY_GRAPH --")
         self.unroll_delays = unroll_delays
-        variants = {}
+        model = DelayGraphModel()
         # iterate over each variant
         for block_variant in block_model.getAllVariants():
             print(f" > Generating delay graph for '{block_variant.name}'")
-            variants[block_variant.name] = self.__generateDelayGraphForEachFunction(block_variant)
-            return variants
+            model.variants[block_variant.name] = self.__generateDelayGraphForEachFunction(block_variant)
+        return model
 
-    def __generateDelayGraphForEachFunction(self, block_variant:Variant):
+    def __generateDelayGraphForEachFunction(self, block_variant:Variant) -> 'DelayGraphVariant':
         block_functions = block_variant.getAllSchedulingFunctions()
-        basic_blocks    = {}
+        variant = DelayGraphVariant()
         for block_function in block_functions:
             print(f"  > Generating delay graph for '{block_function.name}'")
             start = time.perf_counter_ns()
-            basic_blocks[block_function.name] = self.__generateDelayGraphForFunction(block_variant, block_function)
+            variant.scheduling_functions[block_function.name] = self.__generateDelayGraphForFunction(block_variant, block_function)
             end   = time.perf_counter_ns()
             print(f"  > took {(end - start) / 1_000_000}ms!")
-        return basic_blocks
+        return variant
 
     def __generateDelayGraphForFunction(self, block_variant:Variant, block_function:SchedulingFunction):
         graph = DelayGraph()
