@@ -43,7 +43,7 @@ class MaxTerm(list):
     """Represents a max term, made out of a list of variables."""
 
     def __init__(self, iterable=None):
-        super().__init__(iterable)
+        super().__init__(iterable if iterable is not None else [])
 
     def __str__(self) -> str:
         return f"({", ".join([str(v) for v in self])})"
@@ -73,6 +73,29 @@ class MaxTerm(list):
         Returns a list of all variable names as they appear in order.
         """
         return list(dict.fromkeys([v.name for v in self])) # fromkeys keeps order
+
+    def plus(self, value:int) -> 'MaxTerm':
+        if value < 0:
+            raise ValueError("Only positive values are allowed")
+        return MaxTerm([v.merge(value) for v in self]).simplified()
+
+    def resolved(self, variable_name:str) -> 'MaxTerm':
+        new_term = self.simplified()
+        value    = new_term.max_value(variable_name)
+        if value is None:
+            return new_term
+        new_term.remove(variable_name)
+        return new_term.plus(value)
+
+    def remove(self, variable_name:str) -> 'MaxTerm':
+        filtered = list(filter(lambda v: v.name == variable_name, self))
+        if len(filtered) > 0:
+            assert len(filtered) == 1
+            super().remove(filtered[0])
+
+    def replaced(self, variable_name:str, new_variable:'SymbolicVariable') -> 'MaxTerm':
+        new_term = MaxTerm([v if v.name != variable_name else new_variable.merge(v.delay) for v in self])
+        return new_term.simplified()
 
     def expanded(self, intermediates:Dict[str, 'MaxTerm']) -> 'MaxTerm':
         """
@@ -192,14 +215,25 @@ class DelayGraph:
         self._intermediates:Dict[str, 'MaxTerm'] = {}
         self._outputs:Dict[str, 'MaxTerm']       = {}
         self._nodes:Dict[str, 'MaxTerm']         = {}
-
         self._inputs:List[str] = []
         self._dynamic_variables:List[str] = []
-
-        self._variable_mapping:Dict[str, str]   = {}
+        self._variable_mapping:Dict[str, str] = {}
 
     def nodes(self) -> List[str]:
         return self._nodes.keys()
+
+    def input_to_variable_name(self, input_name:str) -> str:
+        try:
+            index = list(self._variable_mapping.values()).index(input_name)
+            return  list(self._variable_mapping.keys())[index]
+        except ValueError:
+            return None
+
+    def variable_name_to_input(self, variable_name:str) -> str:
+        try:
+            return self._variable_mapping[variable_name]
+        except KeyError:
+            return None
 
     def set_node(self, node:str, function:'MaxTerm'):
         assert all(v.name in self._variable_mapping for v in function), \
