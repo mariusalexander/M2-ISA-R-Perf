@@ -55,13 +55,13 @@ class DelayGraphViewer:
         if self.generate_unique_input_nodes:
             self.merge_input_and_plus_nodes = False
 
-    def execute(self, delay_grah, out_dir):
+    def execute(self, delay_graphs, out_dir):
 
         print()
         print("-- BACKEND: DELAY_GRAPH_VIEWER --")
 
-        for variant_name in delay_grah:
-            variant = delay_grah[variant_name]
+        for variant_name in delay_graphs:
+            variant = delay_graphs[variant_name]
 
             # Make sure output directories and temp directory exist
             print(f" > Creating output directories for '{variant_name}'")
@@ -70,21 +70,21 @@ class DelayGraphViewer:
             out_dir = out_dir / variant_name / "doc_delay"
 
             # Generate sub-dirs for each basic block function
-            for block_name in variant:
-                assert block_name
-                (out_dir / block_name).mkdir(parents=True, exist_ok=True)
+            for basic_block_name in variant:
+                assert basic_block_name
+                (out_dir / basic_block_name).mkdir(parents=True, exist_ok=True)
 
-                dot_graph = graphviz.Digraph(comment=block_name)
+                dot_graph = graphviz.Digraph(comment=basic_block_name)
                 dot_graph.attr(rankdir=self._direction)
                 dot_graph.attr(splines=self._edge_style, nodesep=str(self._horizontal_spacing), ranksep=str(self._vertical_spacing))
 
-                outputs = variant[block_name]
+                delay_graph = variant[basic_block_name]
 
-                output_names = [n for n in outputs]
-                alias_names  = set(var.name for o in output_names for var in outputs[o] if var.name.startswith("o_"))
-                input_names  = set(var.name for o in output_names for var in outputs[o] if var.name not in alias_names)
-                output_names = sorted(list(output_names))
-                input_names  = sorted(list(input_names))
+                output_names = delay_graph.outputs()
+                alias_names  = delay_graph.intermediates()
+                input_names  = delay_graph.inputs()
+                # output_names = sorted(list(output_names))
+                # input_names  = sorted(list(input_names))
 
                 # create input nodes
                 with dot_graph.subgraph() as subgraph:
@@ -106,7 +106,7 @@ class DelayGraphViewer:
                     if not self.generate_unique_input_nodes:
                         for input_var in input_names:
                             for output in output_names:
-                                for var in outputs[output]:
+                                for var in delay_graph.get_output(output):
                                     if var.name == input_var:
                                         generate_input_node(input_var, var.delay, prev_node)
                     else:
@@ -130,18 +130,18 @@ class DelayGraphViewer:
                 # create all plus nodes originating from input nodes
                 if not self.merge_input_and_plus_nodes:
                     for input_var in input_names:
-                        self.__generate_out_edges(subgraph, input_var, self.__input, output_names, outputs, **self._input_node_style)
+                        self.__generate_out_edges(subgraph, input_var, self.__input, delay_graph, **self._input_node_style)
 
                 # create alias nodes (max nodes) and create all plus nodes originating from alias nodes
                 for alias_var in alias_names:
                     node_name = self.__max(alias_var)
                     node = subgraph.node(node_name, label="max", shape='ellipse', **self._alias_node_style)
-                    self.__generate_out_edges(subgraph, alias_var, self.__max, output_names, outputs, **self._alias_node_style)
+                    self.__generate_out_edges(subgraph, alias_var, self.__max,  delay_graph, **self._alias_node_style)
 
                 # connect outputs
                 for output_var in output_names:
                     node_name = self.__max(output_var)
-                    function  = outputs[output_var]
+                    function  = delay_graph.get_output(output_var)
                     if output_var not in alias_names:
                         # if output is made up of multiple edges -> create max node
                         if len(function) > 1:
@@ -174,18 +174,18 @@ class DelayGraphViewer:
                         subgraph.edge(self.__plus(var.name, var.delay), node_name)
                         edges[var.name].append(var.delay)
 
-                temp_file = temp_dir / f"{block_name}.dot"
+                temp_file = temp_dir / f"{basic_block_name}.dot"
                 with temp_file.open('w') as f:
                     f.write(dot_graph.source)
 
                 os.chdir(temp_dir)
-                os.system(f"dot -Tpdf {block_name}.dot -o {block_name}.pdf")
-                os.replace(f"{str(temp_dir)}/{block_name}.pdf", f"{str(out_dir / block_name)}/{block_name}_delay_graph.pdf")
+                os.system(f"dot -Tpdf {basic_block_name}.dot -o {basic_block_name}.pdf")
+                os.replace(f"{str(temp_dir)}/{basic_block_name}.pdf", f"{str(out_dir / basic_block_name)}/{basic_block_name}_delay_graph.pdf")
 
-    def __generate_out_edges(self, subgraph, var_name, source_node_func, output_names, outputs, **kwargs):
+    def __generate_out_edges(self, subgraph, var_name, source_node_func, delay_graph, **kwargs):
         edges = []
-        for output in output_names:
-            for var in outputs[output]:
+        for output in delay_graph.outputs():
+            for var in delay_graph.get_output(output):
                 if var.name != var_name:
                     continue
                 if var.delay == 0:

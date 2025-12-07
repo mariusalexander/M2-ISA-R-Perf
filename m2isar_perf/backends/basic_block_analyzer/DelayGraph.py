@@ -176,12 +176,89 @@ class MaxTerm(list):
             return None
         return SymbolicVariable(last_name, last_factor)
 
+class DelayGraph:
+
+    def __init__(self):
+        self._intermediates:Dict[str, 'MaxTerm'] = {}
+        self._outputs:Dict[str, 'MaxTerm']       = {}
+        self._nodes:Dict[str, 'MaxTerm']         = {}
+
+        self._inputs:List[str] = []
+        self._dynamic_variables:List[str] = []
+
+        self._variable_mapping:Dict[str, str]   = {}
+
+    def nodes(self) -> List[str]:
+        return self._nodes.keys()
+
+    def set_node(self, node:str, function:'MaxTerm'):
+        assert all(v.name in self._variable_mapping for v in function), \
+               f"Function contains unregistered variable names!"
+        self.__verify(node, function, check_name=False)
+        self._nodes[node] = function
+
+    def get_node(self, node:str) -> 'MaxTerm':
+        return self._nodes[node]
+
+    def outputs(self) -> List[str]:
+        return self._outputs.keys()
+
+    def set_output(self, variable_name:str, function:'MaxTerm', full_name:Optional[str] = None) -> None:
+        if full_name is not None:
+            self.__register_variable(full_name, variable_name)
+        self.__verify(variable_name, function)
+        self._outputs[variable_name] = function
+
+    def get_output(self, node:str) -> 'MaxTerm':
+        return self._outputs[node]
+
+    def intermediates(self) -> List[str]:
+        return self._intermediates
+
+    def get_intermediate(self, variable_name:str) -> 'MaxTerm':
+        return self._intermediates[variable_name]
+
+    def register_intermediate(self, variable_name:str, function:'MaxTerm') -> None:
+        self.__verify(variable_name, function)
+        self._intermediates[variable_name] = function
+
+    def replace_intermediate(self, variable_name:str, replacement:str, delay=None) -> None:
+        assert replacement in self._intermediates, f"Unkown intermediate '{replacement}'!"
+        del self._intermediates[variable_name]
+        for name in self.nodes():
+            for var in self.get_node(name):
+                if var.name == variable_name:
+                    var.name = replacement
+                    if delay is not None:
+                        var.delay = delay
+
+    def inputs(self) -> List[str]:
+        return self._inputs
+
+    def register_input(self, full_name:str, variable_name:str) -> None:
+        self.__register_variable(full_name, variable_name)
+        if variable_name not in self._inputs:
+            self._inputs.append(variable_name)
+
+    def register_dynamic_variable(self, full_name:str, variable_name:str) -> None:
+        self.register_input(full_name, variable_name)
+        if variable_name not in self._dynamic_variables:
+            self._dynamic_variables.append(variable_name)
+
+    def __register_variable(self, full_name:str, variable_name:str) -> None:
+        assert variable_name not in self._variable_mapping or self._variable_mapping[variable_name] == full_name, \
+               f"Generated duplicate variable name! ('{variable_name}' from '{full_name}' clashes with '{self._variable_mapping[variable_name]}')"
+        self._variable_mapping[variable_name] = full_name
+
+    def __verify(self, variable_name:str, function:'MaxTerm', check_name=True) -> None:
+        if check_name:
+            assert variable_name in self._variable_mapping, f"Unkown variable name '{variable_name}'!"
+        assert not any(v.delay < 0 for v in function), f"Term of '{variable_name}' contains negative cofactors!"
+
 class DelayGraphTransformer:
     """Delay Graph"""
 
     def __init__(self):
-        # helper variable to verify that no variable is duplicated
-        self._variable_names = {}
         # whether to unroll all delay functions
         self.unroll_delays = False
 
@@ -212,54 +289,45 @@ class DelayGraphTransformer:
         return basic_blocks
 
     def __generateDelayGraphForFunction(self, block_variant:Variant, block_function:SchedulingFunction):
-        # max term for each node indexed by its name
-        nodes   = {}
-        # max term for each output indexed by its name
-        outputs = {}
-        # intermediate outputs, that can be shared by other terms to produce a graph-like structure
-        intermediates = {}
-
-        self._variable_names = {}
+        graph = DelayGraph()
 
         # find all root nodes
-        queue   = deque([n for n in block_function.getAllNodes() if len(n.getAllInNodes()) == 0])
+        queue = deque([n for n in block_function.getAllNodes() if len(n.getAllInNodes()) == 0])
         while queue:
             node = queue.popleft()
-            assert node.name not in nodes
+            assert node.name not in graph.nodes()
 
             # create max term, discarding redundant variables
-            function = self.__get_inputs(node, nodes)
-            function = function.repacked(intermediates).sorted()
+            function = self.__get_inputs(node, graph)
+            function = function.repacked(graph.intermediates()).sorted()
 
             # store function of current node
-            nodes[node.name] = function
-            DelayGraphTransformer.print_function(node.name, function, indent=3)
+            graph.set_node(node.name, function)
+            self.print_function(node.name, function, indent=3)
 
             # set outputs if any
-            output_name = self.__set_output(node, outputs, function)
+            intermediate = self.__set_output(node, function, graph)
 
             # create intermediate output if function is a max node (multiple input edges)
             if not self.unroll_delays:
-                if output_name is not None and len(function) > 1:
-                    self.__update_intermediates(node.name, nodes, output_name, outputs, intermediates)
-
-            assert not any([v.delay < 0 for v in nodes[node.name]]), f"Term of '{node.name}' contains negative cofactors!"
+                if intermediate is not None and len(function) > 1:
+                    self.__update_intermediates(node.name, intermediate, graph)
 
             # iterate over children if all dependencies have been met
             for next_node_i in node.getAllOutNodes():
-                if all((predecessor.name in nodes) for predecessor in next_node_i.getAllInNodes()):
+                if all((predecessor.name in graph.nodes()) for predecessor in next_node_i.getAllInNodes()):
                     queue.append(next_node_i)
 
         # make sure all nodes have been processed
-        assert all([ n.name in nodes for n in block_function.getAllNodes() ])
+        assert all([ n.name in graph.nodes() for n in block_function.getAllNodes() ])
 
         print(f"   > outputs:")
-        for output in outputs:
-            DelayGraphTransformer.print_function(output, outputs[output], indent=4)
+        for output in graph.outputs():
+            DelayGraphTransformer.print_function(output, graph.get_output(output), indent=4)
 
-        return outputs
+        return graph
 
-    def __get_inputs(self, node:Node, nodes:Dict[str, 'MaxTerm']) -> 'MaxTerm':
+    def __get_inputs(self, node:Node, graph:'DelayGraph') -> 'MaxTerm':
         """
         Accumulates all input variables for the given node.
         Returns a non-simplified term.
@@ -267,59 +335,57 @@ class DelayGraphTransformer:
         term = MaxTerm([])
         # append in edges to function
         for in_edge in node.getAllInEdges():
-            name = self.__variable_name(in_edge)
-            if name == 'r0':
+            edge_name = self.__variable_name(in_edge)
+            variable  = self.__simplify_variable_name(edge_name)
+            if variable == 'r0':
                 continue
-            variable = SymbolicVariable(name, node.delay)
-            term.append(variable)
+            graph.register_input(edge_name, variable)
+            term.append(SymbolicVariable(variable, node.delay))
         # append in node to function
         for in_node in node.getAllInNodes():
-            for variable in nodes[in_node.name]:
+            for variable in graph.get_node(in_node.name):
                 term.append(variable.merge(node.delay))
         # append variable delay of resource model
         if node.resourceModel:
-            name = self.__simplify_variable_name(node.name)
-            variable = SymbolicVariable(name, node.delay)
+            variable = self.__simplify_variable_name(node.name)
+            graph.register_dynamic_variable(node.name, variable)
+            variable = SymbolicVariable(variable, node.delay)
             term.append(variable)
         return term
 
-    def __set_output(self, node:Node, outputs:Dict[str, 'MaxTerm'], function:'MaxTerm') -> str:
+    def __set_output(self, node:Node, function:'MaxTerm', graph:'DelayGraph') -> str:
         """
         Sets the node's function to all outputs of this node.
         Yields the name of the last output that was set (if any)
         """
         intermediate = None
         for edge in node.getAllOutEdges():
-            var_name = self.__variable_name(edge, prefix="o_")
-            outputs[var_name] = function
-            intermediate = var_name
-            print(f"     -> sets '{intermediate}'")
+            edge_name = self.__variable_name(edge, prefix="o_")
+            variable = self.__simplify_variable_name(edge_name)
+            graph.set_output(variable, function, full_name=edge_name)
+            intermediate = variable
+            print(" " * 23 + f"- sets '{intermediate}'")
         return intermediate
 
-    def __update_intermediates(self,
-                         node_name:str,
-                         nodes:Dict[str, 'MaxTerm'],
-                         output_name:str,
-                         outputs:Dict[str, 'MaxTerm'],
-                         intermediates:Dict[str, 'MaxTerm']):
+    def __update_intermediates(self, node_name:str, intermediate:str, graph:'DelayGraph') -> None:
         """
         Creates an intermedaite output for the function of the current node, if no other intermediate covers this node.
         Otherwise, all references are updated.
         """
-        current_term = nodes[node_name]
-        expanded = current_term.expanded(intermediates)
-        new_term = [SymbolicVariable(output_name)]
+        current_term = graph.get_node(node_name)
+        expanded = current_term.expanded(graph.intermediates())
+        new_term = [SymbolicVariable(intermediate)]
 
         # check if term is covered by other intermediate
-        best_match = expanded.find_best_intermediate(intermediates=intermediates, expand=False, allow_negative_distance=True)
+        best_match = expanded.find_best_intermediate(intermediates=graph.intermediates(), expand=False, allow_negative_distance=True)
         if best_match is not None and best_match.name not in current_term:
-            other_term = intermediates[best_match.name]
+            other_term = graph.get_intermediate(best_match.name)
             if best_match.delay >= 0:
-                print(f"INFO: intermediate '{output_name}' is a multiple of '{best_match.name}'! (distance: {best_match.delay})")
+                print(f"INFO: intermediate '{intermediate}' is a multiple of '{best_match.name}'! (distance: {best_match.delay})")
                 # link to other intermediate
                 new_term = MaxTerm([best_match])
                 # add variables not in other term to new term
-                assert len(other_term) == len(expanded)
+                assert len(other_term) == len(expanded), "Necessary to extend term by missing variables?"
                 #    extension = expanded.difference(other_term)
                 #    new_term += extension
                 #    intermediates[output_name] = expanded
@@ -327,22 +393,16 @@ class DelayGraphTransformer:
                 expanded = new_term
             else:
                 # other intermediate is a negative multiple of this term
-                print(f"INFO: intermediate '{best_match.name}' is a negative multiple of '{output_name}'! (distance: {best_match.delay})")
+                print(f"INFO: intermediate '{best_match.name}' is a negative multiple of '{intermediate}'! (distance: {best_match.delay})")
                 assert len(other_term) == len(expanded)
-                new_term = MaxTerm([SymbolicVariable(output_name, -best_match.delay)])
+                new_term = MaxTerm([SymbolicVariable(intermediate, -best_match.delay)])
                 # update old output
-                outputs[best_match.name] = new_term
-                del intermediates[best_match.name]
-                # update all references to old intermediate
-                for n in nodes:
-                    for var in nodes[n]:
-                        if var.name == best_match.name:
-                            print(f"INFO: -> updated '{n}'!")
-                            var.name   = output_name
-                            var.delay += -best_match.delay
+                graph.set_output(best_match.name, new_term)
+                graph.register_intermediate(intermediate, expanded)
+                graph.replace_intermediate(best_match.name, intermediate, delay=-best_match.delay)
         # save new intermediate and update output of this node
-        intermediates[output_name] = expanded
-        nodes[node_name]           = new_term
+        graph.register_intermediate(intermediate, expanded)
+        graph.set_node(node_name, new_term)
 
     def __variable_name(self, edge:Edge, prefix:str=""):
         """
@@ -355,7 +415,7 @@ class DelayGraphTransformer:
             var_name += edge.timingVariable.name
         else:
             var_name += f"{edge.timingVariable.name}[{edge.depth}]"
-        return self.__simplify_variable_name(var_name)
+        return var_name
 
     def __simplify_variable_name(self, var_name:str):
         """
@@ -370,9 +430,6 @@ class DelayGraphTransformer:
             .replace("_stage", "") \
             .replace("_substage", "_sub") \
             .replace("model", "")
-        assert new_name not in self._variable_names or self._variable_names[new_name] == var_name, \
-               f"generated duplicate variable name! ('{new_name}' from '{var_name}' clashes with '{self._variable_names[new_name]}')"
-        self._variable_names[new_name] = var_name
         return new_name
 
     @staticmethod
