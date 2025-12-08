@@ -22,6 +22,7 @@ import pathlib
 import os
 
 from backends.common import dirUtils as dir_utils
+from backends.basic_block_analyzer.DelayGraph import DelayGraphModel
 
 class DelayGraphViewer:
 
@@ -55,7 +56,7 @@ class DelayGraphViewer:
         if self.generate_unique_input_nodes:
             self.merge_input_and_plus_nodes = False
 
-    def execute(self, delay_graph_model, out_dir):
+    def execute(self, delay_graph_model:DelayGraphModel, out_dir:str):
 
         print()
         print("-- BACKEND: DELAY_GRAPH_VIEWER --")
@@ -67,12 +68,12 @@ class DelayGraphViewer:
             print(f" > Creating output directories for '{variant_name}'")
             temp_dir = self._temp_dir / variant_name
             dir_utils.createOrReplaceDir(temp_dir, suppress_warning=True)
-            out_dir = out_dir / variant_name / "doc_delay"
+            variant_dir = out_dir / variant_name / "doc_delay"
 
             # Generate sub-dirs for each basic block function
             for basic_block_name in variant.scheduling_functions:
                 assert basic_block_name
-                (out_dir / basic_block_name).mkdir(parents=True, exist_ok=True)
+                (variant_dir / basic_block_name).mkdir(parents=True, exist_ok=True)
 
                 dot_graph = graphviz.Digraph(comment=basic_block_name)
                 dot_graph.attr(rankdir=self._direction)
@@ -180,7 +181,7 @@ class DelayGraphViewer:
 
                 os.chdir(temp_dir)
                 os.system(f"dot -Tpdf {basic_block_name}.dot -o {basic_block_name}.pdf")
-                os.replace(f"{str(temp_dir)}/{basic_block_name}.pdf", f"{str(out_dir / basic_block_name)}/{basic_block_name}_delay_graph.pdf")
+                os.replace(f"{str(temp_dir)}/{basic_block_name}.pdf", f"{str(variant_dir / basic_block_name)}/{basic_block_name}_delay_graph.pdf")
 
     def __generate_out_edges(self, subgraph, var_name, source_node_func, delay_graph, **kwargs):
         edges = []

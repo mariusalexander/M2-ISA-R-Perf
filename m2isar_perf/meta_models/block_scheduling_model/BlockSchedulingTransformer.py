@@ -23,7 +23,7 @@ from collections import deque
 from typing import List, Dict
 from meta_models.scheduling_model.SchedulingModel import SchedulingModel, Variant, SchedulingFunction, Node, StaticEdge
 
-# wrapper to support dot-notation 
+# wrapper to support dot-notation
 # (see https://stackoverflow.com/questions/2352181/how-to-use-a-dot-to-access-members-of-dictionary)
 class dotdict(dict):
     """Allows using 'dot.notation' to access dictionary attributes"""
@@ -99,8 +99,8 @@ class BlockSchedulingTransformer:
 
     def __init__(self):
         self._id = 1024
-        # whether to use more descriptive names for edges to registers, like 'r2 (Xa)' instead of 'Xa' 
-        self.rename_edges = True 
+        # whether to use more descriptive names for edges to registers, like 'r2 (Xa)' instead of 'Xa'
+        self.rename_edges = True
         # TODO: infer these attributes dynamically from core perf dsl or the struct model
         self._register_count   = 32
         self._register_models  = ["regModel", "clobberModel"]
@@ -108,9 +108,9 @@ class BlockSchedulingTransformer:
             "regModel" : "Xd",
             "clobberModel": "Cb_in",
         }
-        self._branch_prediction_models  = ["staBranchPredModel", "dynBranchPredModel"]
+        self._branch_prediction_models  = ["noBranchPredModel", "staBranchPredModel", "dynBranchPredModel"]
         self._supported_models = self._register_models + self._branch_prediction_models
-        
+
     def transform(self, sched_model:SchedulingModel, block_descriptions:List[BasicBlockDescription]) -> SchedulingModel:
         """
         Transforms basic blocks (BB) into a block scheudling model.
@@ -119,7 +119,7 @@ class BlockSchedulingTransformer:
         print("-- TRANSMFORMER: BLOCK_SCHEDULING_MODEL --")
 
         blockSchedulingModel = SchedulingModel()
-        
+
         # iterate over each variant
         for sched_variant in sched_model.getAllVariants():
             print(f" > Generating block scheduling model for '{sched_variant.name}'")
@@ -148,7 +148,7 @@ class BlockSchedulingTransformer:
         block_function = block_variant.createSchedulingFunction(block_desc.name, self._id)
         self._id += 1
 
-        # helper struct to resolve external and internal edges 
+        # helper struct to resolve external and internal edges
         mappings = dotdict()
         # mappings for timing variables
         mappings.timingVariables = {}
@@ -212,7 +212,7 @@ class BlockSchedulingTransformer:
             root_node = self.__findNode(block_function, block_idx, root_node)
             print(f"   > Setting root node: '{root_node.name}'")
             block_function.setRootNode(root_node)
-            
+
         assert not sched_function.endNode, "It is assumed, that `SchedulingFunction.endNode` is not used"
 
     def __resolveInternalEdges(self, source_node:Node, block_node:Node, block_desc:BasicBlockDescription, block_idx:int, mappings):
@@ -277,7 +277,7 @@ class BlockSchedulingTransformer:
         assert edge.depth == 1, f"Expected outgoing edges to have a depth == 1 (acutal depth: {out_edge.depth})!"
         # update and right-shift history
         print (f"    > Resolved timing variable: Node '{block_node.name}' sets '{timing_variable}'")
-        mappings[timing_variable] = [block_node] + history[:-1] 
+        mappings[timing_variable] = [block_node] + history[:-1]
 
     def __resolveOutgoingTimingVariables(self, block_function:SchedulingFunction, mappings):
         for timing_variable in mappings.timingVariables:
@@ -302,6 +302,7 @@ class BlockSchedulingTransformer:
         instr = block_desc.instructions[block_idx]
         registers  = mappings[model]
         registerNo = instr[edge.name]
+        assert registerNo is not None, f"{block_desc.name}: Instruction '{instr.name}' requires register '{edge.name}'! (undefined)"
         last_node  = registers[registerNo]
         if not last_node:
             print (f"    > Resolved {model}: Node '{block_node.name}' uses 'r{registerNo} ({edge.name})'")
@@ -345,7 +346,7 @@ class BlockSchedulingTransformer:
     def __isBranchInstruction(self, instr):
         # TODO: refine solution (annoate in corePerfDsl?)
         # check if instructions starts with 'b' (sufficient for RISC-V Integer ISA?)
-        return instr.name[0] == 'b' 
+        return instr.name[0] == 'b'
 
     def __findElementByName(self, elements, name, error_str = ""):
         element = list(filter(lambda e: e.name == name, elements))

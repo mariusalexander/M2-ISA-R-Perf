@@ -31,6 +31,8 @@ class DelayAnalyzer:
             print(f" > Analyzing delay graph for '{structural_variant.name}'")
             delay_graph_variant = delay_graph_model.variants[structural_variant.name]
 
+            printed = []
+
             for function_name in delay_graph_variant.scheduling_functions:
                 print(f"  > Analyzing delay graph of '{function_name}'")
 
@@ -40,7 +42,7 @@ class DelayAnalyzer:
 
                 mappings = { f"r{reg}":SymbolicVariable("zero") for reg in range(1, 32) }
                 mappings["pc"] = SymbolicVariable("if")
-                
+
                 stages = pipeline.getFirstStages()
                 while stages:
                     next_stages = []
@@ -51,7 +53,7 @@ class DelayAnalyzer:
                         if variable_name is None:
                             continue
                         #print(f"STAGE: {timing_variable} -> {variable_name}")
-                        
+
                         next_stages += pipeline.getNextStages(stage)
                         for next_stage in pipeline.getNextStages(stage):
                             assert next_stage.capacity == 1
@@ -64,7 +66,9 @@ class DelayAnalyzer:
                             next_variable_name   = delay_graph.input_to_variable_name(next_timing_variable)
                             if next_variable_name is None:
                                 continue
-                            #print(f"NEXT: {next_variable_name} = 1 + {variable_name}")
+                            if next_variable_name not in printed:
+                                print(f"{next_variable_name} = 1 + {variable_name}")
+                                printed.append(next_variable_name)
                             mappings[next_variable_name] = SymbolicVariable(variable_name, 1)
                             if next_stage not in next_stages:
                                 next_stages.append(next_stage)
@@ -82,5 +86,6 @@ class DelayAnalyzer:
 
                             output = output.replaced(mapping, mappings[mapping])
                     output = output.resolved("zero")
-                    print(f"    > Resolved '{output_name}': {before}\t => \t{output}")
+                    print(f"    > Resolved {output_name.ljust(10)} :  {before}\t \n" + \
+                          f"               {"".ljust(10)} => {output}")
 

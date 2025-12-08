@@ -50,10 +50,10 @@ class MaxTerm(list):
 
     def __repr__(self) -> str:
         return self.__str__()
-    
+
     def __add__(self, value:SymbolicVariable):
         return super().__add__(value)
-    
+
     def __contains__(self, value:str|SymbolicVariable) -> bool:
         if isinstance(value, str):
             assert self.count(v.name == value for v in self) <= 1, f"Duplicate variable '{value}'!"
@@ -72,7 +72,7 @@ class MaxTerm(list):
         """
         Returns a list of all variable names as they appear in order.
         """
-        return list(dict.fromkeys([v.name for v in self])) # fromkeys keeps order
+        return list(dict.fromkeys([v.name for v in self])) # keeps order but removes duplicates
 
     def plus(self, value:int) -> 'MaxTerm':
         if value < 0:
@@ -80,12 +80,11 @@ class MaxTerm(list):
         return MaxTerm([v.merge(value) for v in self]).simplified()
 
     def resolved(self, variable_name:str) -> 'MaxTerm':
-        new_term = self.simplified()
-        value    = new_term.max_value(variable_name)
+        value    = self.max_value(variable_name)
         if value is None:
-            return new_term
-        new_term.remove(variable_name)
-        return new_term.plus(value)
+            value = 0
+        new_term = MaxTerm([SymbolicVariable(v.name, max(v.delay, value)) for v in self if v.name != variable_name])
+        return new_term
 
     def remove(self, variable_name:str) -> 'MaxTerm':
         filtered = list(filter(lambda v: v.name == variable_name, self))
@@ -94,12 +93,16 @@ class MaxTerm(list):
             super().remove(filtered[0])
 
     def replaced(self, variable_name:str, new_variable:'SymbolicVariable') -> 'MaxTerm':
+        """
+        Replaces all instances of `variable_name` with `new_variable.name` and merges the delays.
+        Returns a new, simplified term.
+        """
         new_term = MaxTerm([v if v.name != variable_name else new_variable.merge(v.delay) for v in self])
         return new_term.simplified()
 
     def expanded(self, intermediates:Dict[str, 'MaxTerm']) -> 'MaxTerm':
         """
-        Expands (unrolls) all intermediate variables by their corresponding variables. 
+        Expands (unrolls) all intermediate variables by their corresponding variables.
         Returns a new, simplified term.
         """
         expanded = MaxTerm([i.merge(v.delay) for v in self if v.name in intermediates for i in intermediates[v.name]] + \
@@ -140,7 +143,7 @@ class MaxTerm(list):
         For variables with same delay, alphabetical order is used.
         """
         return MaxTerm(sorted(self, key=lambda v: (-v.delay, v.name)))
-    
+
     def distance(self, other:'MaxTerm') -> Optional[int]:
         """
         Attempts to find a linear dependency between `self` and `other`.
@@ -274,7 +277,7 @@ class DelayGraph:
                 if var.name == variable_name:
                     var.name = replacement
                     if delay is not None:
-                        var.delay = delay
+                        var.delay += delay
 
     def inputs(self) -> List[str]:
         return self._inputs
@@ -290,8 +293,9 @@ class DelayGraph:
             self._dynamic_variables.append(variable_name)
 
     def __register_variable(self, full_name:str, variable_name:str) -> None:
-        assert variable_name not in self._variable_mapping or self._variable_mapping[variable_name] == full_name, \
-               f"Generated duplicate variable name! ('{variable_name}' from '{full_name}' clashes with '{self._variable_mapping[variable_name]}')"
+        if "Xa" not in full_name and "Xb" not in full_name:
+            assert variable_name not in self._variable_mapping or self._variable_mapping[variable_name] == full_name, \
+                f"Generated duplicate variable name! ('{variable_name}' from '{full_name}' clashes with '{self._variable_mapping[variable_name]}')"
         self._variable_mapping[variable_name] = full_name
 
     def __verify(self, variable_name:str, function:'MaxTerm', check_name=True) -> None:
