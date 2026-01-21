@@ -76,7 +76,13 @@ class BasicBlockDescription:
         self.starting_address = starting_address
         self.instructions = []
 
-    def addInstruction(self, instr_name, rd=None, rs1=None, rs2=None, imm=None):
+    def __str__(self) -> str:
+        return f"basic block '{self.name}' ({hex(self.starting_address)}), {len(self.instructions)} instructions:\n " + ("\n ".join([str(r) for r in self.instructions]))
+
+    def __repr__(self) -> str:
+        return self.__str__()
+
+    def addInstruction(self, instr_name, rd=None, rs1=None, rs2=None, imm=None, **kwargs):
         instr = dotdict({
             "address": self.starting_address + (4 * len(self.instructions)),
             "name": instr_name,
@@ -92,6 +98,8 @@ class BasicBlockDescription:
             "Cb_in" : rd,
             "Cb_out" : rd,
         })
+        for i in kwargs:
+            print(f" > ignoring register {i} : {kwargs[i]}!")
         self.instructions.append(instr)
 
 class BlockSchedulingTransformer:

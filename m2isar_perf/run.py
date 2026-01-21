@@ -20,6 +20,7 @@ import argparse
 import pathlib
 import pickle
 import sys
+import os
 from objprint import op
 
 from common import common as cf
@@ -46,7 +47,7 @@ argParser.add_argument("-c", "--code_gen", action="store_true", help="Generate e
 argParser.add_argument("-m", "--monitor_description", action="store_true", help="Generate monitor description")
 argParser.add_argument("-i", "--info_print", action="store_true", help="Generate info/debug/doc prints")
 argParser.add_argument("-d", "--dump_dir", help="Directory to dump intermediatly generated models.")
-argParser.add_argument("-b", "--block_transform", action="store_true", help="Basic Block to transform")
+argParser.add_argument("-b", "--block_transform", nargs='?', type=argparse.FileType('r'), const=True, help="Basic Block to transform")
 args = argParser.parse_args()
 
 # Resolve outDir
@@ -70,55 +71,71 @@ if args.code_gen:
 if args.info_print:
     #StructuralModelViewer().execute(structModel, outDir)
     SchedulingModelViewer().execute(schedModel, outDir)
-if args.block_transform:
 
-    print(args.block_transform)
-
-    r = AbiRegisters()
+if args.block_transform is not None:
 
     descs = []
 
-    desc = BasicBlockDescription("bb_custom_1", 0x100047c)
-    desc.addInstruction("addi", rd =r.sp  , rs1=r.sp, imm=(-0x1b0))
-    desc.addInstruction("sw"  , rs1=r.s0  , rs2=r.sp)
-    desc.addInstruction("sw"  , rs1=r.s1  , rs2=r.sp)
-    desc.addInstruction("sw"  , rs1=r.s2  , rs2=r.sp)
-    desc.addInstruction("sw"  , rs1=r.s3  , rs2=r.sp)
-    desc.addInstruction("sw"  , rs1=r.s4  , rs2=r.sp)
-    desc.addInstruction("sw"  , rs1=r.s5  , rs2=r.sp)
-    desc.addInstruction("sw"  , rs1=r.s6  , rs2=r.sp)
-    desc.addInstruction("sw"  , rs1=r.s7  , rs2=r.sp)
-    desc.addInstruction("lui" , rd =r.a0  ,           imm=(0x1800))
-    desc.addInstruction("addi", rd =r.a0  , rs1=r.a0, imm=(0x760))
-    desc.addInstruction("bge" , rs1=r.zero, rs2=r.a1, imm=(0x1000644)) # implements blez: 0 => a1 <--> a1 <= 0
-    descs.append(desc)
+    # TODO: only temporary for testing, remove this block
+    if args.block_transform is True: # no argument -> load test basic blocks
+        r = AbiRegisters()
 
-    desc = BasicBlockDescription("bb_ppt_example", 0x100047c)
-    desc.addInstruction("andi", rd =15, rs1=15)
-    desc.addInstruction("slli", rd =15, rs1=15)
-    desc.addInstruction("add" , rd =15, rs1=18, rs2=15)
-    desc.addInstruction("lw"  , rd =15, rs1=15)
-    desc.addInstruction("srli", rd = 8, rs1= 8)
-    desc.addInstruction("addi", rd = 9, rs1= 9)
-    desc.addInstruction("xor" , rd = 8, rs1=15, rs2= 8)
-    desc.addInstruction("bne" , rs1= 9, rs2= 0)
-    descs.append(desc)
+        desc = BasicBlockDescription("bb_custom_1", 0x100047c)
+        desc.addInstruction("addi", rd =r.sp  , rs1=r.sp, imm=(-0x1b0))
+        desc.addInstruction("sw"  , rs1=r.s0  , rs2=r.sp)
+        desc.addInstruction("sw"  , rs1=r.s1  , rs2=r.sp)
+        desc.addInstruction("sw"  , rs1=r.s2  , rs2=r.sp)
+        desc.addInstruction("sw"  , rs1=r.s3  , rs2=r.sp)
+        desc.addInstruction("sw"  , rs1=r.s4  , rs2=r.sp)
+        desc.addInstruction("sw"  , rs1=r.s5  , rs2=r.sp)
+        desc.addInstruction("sw"  , rs1=r.s6  , rs2=r.sp)
+        desc.addInstruction("sw"  , rs1=r.s7  , rs2=r.sp)
+        desc.addInstruction("lui" , rd =r.a0  ,           imm=(0x1800))
+        desc.addInstruction("addi", rd =r.a0  , rs1=r.a0, imm=(0x760))
+        desc.addInstruction("bge" , rs1=r.zero, rs2=r.a1, imm=(0x1000644)) # implements blez: 0 => a1 <--> a1 <= 0
+        descs.append(desc)
 
-    desc = BasicBlockDescription("bb_addi_add_add", 0x000003c4)
-    desc.addInstruction("addi", rd=15, rs1=15, imm=255)
-    desc.addInstruction("add" , rd=16, rs1=15, rs2=7)
-    desc.addInstruction("add" , rd=15, rs1=15, rs2=16)
-    descs.append(desc)
+        desc = BasicBlockDescription("bb_ppt_example", 0x100047c)
+        desc.addInstruction("andi", rd =15, rs1=15)
+        desc.addInstruction("slli", rd =15, rs1=15)
+        desc.addInstruction("add" , rd =15, rs1=18, rs2=15)
+        desc.addInstruction("lw"  , rd =15, rs1=15)
+        desc.addInstruction("srli", rd = 8, rs1= 8)
+        desc.addInstruction("addi", rd = 9, rs1= 9)
+        desc.addInstruction("xor" , rd = 8, rs1=15, rs2= 8)
+        desc.addInstruction("bne" , rs1= 9, rs2= 0)
+        descs.append(desc)
 
-    desc = BasicBlockDescription("bb_lw_addi_sw", 0x000003c4)
-    desc.addInstruction("lw"  , rd=3 , rs1=2)
-    desc.addInstruction("addi", rd=4, rs1=3, imm=16)
-    desc.addInstruction("sw"  , rs1=3, rs2=4)
-    descs.append(desc)
+        desc = BasicBlockDescription("bb_addi_add_add", 0x000003c4)
+        desc.addInstruction("addi", rd=15, rs1=15, imm=255)
+        desc.addInstruction("add" , rd=16, rs1=15, rs2=7)
+        desc.addInstruction("add" , rd=15, rs1=15, rs2=16)
+        descs.append(desc)
 
-    desc = BasicBlockDescription("bb_addi", 0x000003c4)
-    desc.addInstruction("addi", rd=4, rs1=3, imm=255)
-    descs.append(desc)
+        desc = BasicBlockDescription("bb_lw_addi_sw", 0x000003c4)
+        desc.addInstruction("lw"  , rd=3 , rs1=2)
+        desc.addInstruction("addi", rd=4, rs1=3, imm=16)
+        desc.addInstruction("sw"  , rs1=3, rs2=4)
+        descs.append(desc)
+
+        desc = BasicBlockDescription("bb_addi", 0x000003c4)
+        desc.addInstruction("addi", rd=4, rs1=3, imm=255)
+        descs.append(desc)
+    else:
+        print("-- FRONTEND: PARSING BASIC BLOCK --")
+        file = args.block_transform
+        filename = os.path.basename(file.name)
+        desc = BasicBlockDescription(filename, int(os.path.splitext(filename)[0], 16))
+
+        file.seek(0)
+        for line in file.readlines():
+            idx = line.index("#")
+            instr_name = line[:idx].strip()
+            idx = line.index('[')
+            registers = line[idx+1:].replace(']', '').split('|')
+            registers = [ tuple(r.strip().split("=")) for r in registers]
+            desc.addInstruction(instr_name, **{r[0]:int(r[1]) for r in registers if r[0]})
+        descs.append(desc)
 
     blockSchedule = BlockSchedulingTransformer().transform(schedModel, descs)
     if args.code_gen:
@@ -128,3 +145,4 @@ if args.block_transform:
     delayModel = DelayGraphTransformer().transform(blockSchedule, unroll_delays=False)
     DelayGraphViewer().execute(delayModel, outDir)
     DelayAnalyzer().assume_perfect_pipeline(structModel, delayModel)
+    op(descs)

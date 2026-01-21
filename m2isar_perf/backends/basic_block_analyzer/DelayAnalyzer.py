@@ -67,7 +67,7 @@ class DelayAnalyzer:
                             if next_variable_name is None:
                                 continue
                             if next_variable_name not in printed:
-                                print(f"{next_variable_name} = 1 + {variable_name}")
+                                print(f"   > assuming: {next_variable_name} = 1 + {variable_name}")
                                 printed.append(next_variable_name)
                             mappings[next_variable_name] = SymbolicVariable(variable_name, 1)
                             if next_stage not in next_stages:
@@ -86,6 +86,6 @@ class DelayAnalyzer:
 
                             output = output.replaced(mapping, mappings[mapping])
                     output = output.resolved("zero")
-                    print(f"    > Resolved {output_name.ljust(10)} :  {before}\t \n" + \
-                          f"               {"".ljust(10)} => {output}")
+                    print(f"   > Resolved {output_name.ljust(10)} :  {before}\t \n" + \
+                          f"              {"".ljust(10)} => {output}")
 
