@@ -53,9 +53,18 @@ args = argParser.parse_args()
 # Resolve outDir
 outDir = cf.resolveOutDir(args.output_dir, __file__, 1)
 
+filtered_out_cores = False
 # Call frontend to generate structural-model
 if args.description.endswith('.corePerfDsl'):
     structModel = Frontend.execute(args.description, args.dump_dir)
+
+    # TODO: define whitelist/backlist by argument
+    # filter out unneeded variants of SimpleRISCV cores
+    variants = structModel.variants
+    structModel.variants = [ var for var in structModel.variants if "SimpleRISCV" not in var.name or "StaBrPred" in var.name]
+    for var in [var for var in variants if var not in structModel.variants]:
+        print(f"WARNING: Filtered out variant '{var.name}'!")
+        filtered_out_cores = True
 else:
     sys.exit("FATAL: Description format is not supported. Currently only supporting files of type .corePerfDsl")
 
@@ -75,11 +84,10 @@ if args.info_print:
 if args.block_transform is not None:
 
     descs = []
+    r = AbiRegisters()
 
     # TODO: only temporary for testing, remove this block
     if args.block_transform is True: # no argument -> load test basic blocks
-        r = AbiRegisters()
-
         desc = BasicBlockDescription("bb_custom_1", 0x100047c)
         desc.addInstruction("addi", rd =r.sp  , rs1=r.sp, imm=(-0x1b0))
         desc.addInstruction("sw"  , rs1=r.s0  , rs2=r.sp)
@@ -121,10 +129,12 @@ if args.block_transform is not None:
         desc = BasicBlockDescription("bb_addi", 0x000003c4)
         desc.addInstruction("addi", rd=4, rs1=3, imm=255)
         descs.append(desc)
+
     else:
+
         print("-- FRONTEND: PARSING BASIC BLOCK --")
         file = args.block_transform
-        filename = os.path.basename(file.name)
+        filename = os.path.basename(file.name.replace(".txt", ""))
         desc = BasicBlockDescription(filename, int(os.path.splitext(filename)[0], 16))
 
         file.seek(0)
@@ -137,12 +147,56 @@ if args.block_transform is not None:
             desc.addInstruction(instr_name, **{r[0]:int(r[1]) for r in registers if r[0]})
         descs.append(desc)
 
+    # TODO: temporary sanity checks
+    for desc in descs:
+        idx = 0
+        for instr in desc.instructions:
+            match instr.name:
+                # meta instructions
+                case "mret" | "call" | "ret" | "ecall":
+                    raise RuntimeError(f"Cannot handle {instr.name}!")
+                # branch and jump instructions
+                case "j" | "jal" | "jalr" | \
+                     "beq" | "bne" | "blt" | "bltu" | "bge" |  "bgeu":
+                    # only last instruct may be a branch 
+                    if idx < len(desc.instructions) - 1:
+                        print(desc.instructions)
+                        raise RuntimeError(f"Multiple branch instructions in {desc.name}!")
+            idx += 1
+
+    # TODO: check which instruction is the best substitution for SimpleRISCV
+    if filtered_out_cores:
+        for desc in descs:
+            for instr in desc.instructions:
+                match instr.name:
+                    case "srai" | "slli" | "srli" | "srl" | "sra":
+                        instr.name = "sll"
+                        instr.Xb   = r.zero
+                    case "sltu":
+                        instr.name = "sltiu"
+                    case "lui" | "auipc":
+                        instr.name = "lw"
+                        instr.Xa   = r.zero
+                    case "jal" | "jalr":
+                        instr.name = "beq"
+                        instr.Xa   = r.zero
+                        instr.Xb   = r.zero
+                    case "divu":
+                        instr.name = "mul"
+                    case "remu":
+                        instr.name = "rem"
+
     blockSchedule = BlockSchedulingTransformer().transform(schedModel, descs)
     if args.code_gen:
         BasicBlockTestGenerator().execute(schedModel, blockSchedule, descs, outDir)
     if args.info_print:
         SchedulingModelViewer().execute(blockSchedule, outDir, cluster=False)
+    
     delayModel = DelayGraphTransformer().transform(blockSchedule, unroll_delays=False)
     DelayGraphViewer().execute(delayModel, outDir)
-    DelayAnalyzer().assume_perfect_pipeline(structModel, delayModel)
-    op(descs)
+    DelayAnalyzer(structModel, delayModel) \
+        .assume_registers_available() \
+        .assume_no_dynamic_delays() \
+        .assume_pc_available() \
+        .assume_perfect_pipeline() \
+        .resolve(estimate_cpi=True)

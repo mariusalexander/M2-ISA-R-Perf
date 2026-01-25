@@ -80,6 +80,9 @@ class MaxTerm(list):
         return MaxTerm([v.merge(value) for v in self]).simplified()
 
     def resolved(self, variable_name:str) -> 'MaxTerm':
+        """
+        Returns a new term in which the variable's value is 
+        """
         value    = self.max_value(variable_name)
         if value is None:
             value = 0
@@ -215,11 +218,17 @@ class DelayGraphVariant:
 class DelayGraph:
 
     def __init__(self):
+        # intermediate results, that can be reused by other nodes
         self._intermediates:Dict[str, 'MaxTerm'] = {}
+        # outputs of the scheduling function (timing variables and connector models)
         self._outputs:Dict[str, 'MaxTerm']       = {}
+        # intermediate nodes (all nodes that are present in a scheduling function)
         self._nodes:Dict[str, 'MaxTerm']         = {}
+        # inputs of the scheduling function (initial timing variables and connector models)
         self._inputs:List[str] = []
+        # inputs that have not a fixed but a dynamic delay (i.e. resource models)
         self._dynamic_variables:List[str] = []
+        # maps full node name to a simplified variable name
         self._variable_mapping:Dict[str, str] = {}
 
     def nodes(self) -> List[str]:
@@ -286,6 +295,9 @@ class DelayGraph:
         self.__register_variable(full_name, variable_name)
         if variable_name not in self._inputs:
             self._inputs.append(variable_name)
+
+    def dynamic_variables(self) -> List[str]:
+        return self._dynamic_variables
 
     def register_dynamic_variable(self, full_name:str, variable_name:str) -> None:
         self.register_input(full_name, variable_name)
@@ -371,7 +383,7 @@ class DelayGraphTransformer:
 
         print(f"   > outputs:")
         for output in graph.outputs():
-            DelayGraphTransformer.print_function(output, graph.get_output(output), indent=4)
+            self.print_function(output, graph.get_output(output), indent=4)
 
         return graph
 
@@ -432,12 +444,7 @@ class DelayGraphTransformer:
                 print(f"INFO: intermediate '{intermediate}' is a multiple of '{best_match.name}'! (distance: {best_match.delay})")
                 # link to other intermediate
                 new_term = MaxTerm([best_match])
-                # add variables not in other term to new term
                 assert len(other_term) == len(expanded), "Necessary to extend term by missing variables?"
-                #    extension = expanded.difference(other_term)
-                #    new_term += extension
-                #    intermediates[output_name] = expanded
-                #    print(f"INFO: intermedaite '{output_name}' was extended by '{", ".join([str(v) for v in extension])}'")
                 expanded = new_term
             else:
                 # other intermediate is a negative multiple of this term

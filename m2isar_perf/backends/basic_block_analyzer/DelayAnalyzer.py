@@ -22,59 +22,109 @@ from meta_models.structural_model.StructuralModel import StructuralModel, Varian
 
 class DelayAnalyzer:
 
-    def __init__(self):
-        pass
-
-    def assume_perfect_pipeline(self, structural_model:StructuralModel, delay_graph_model:DelayGraphModel):
+    def __init__(self, structural_model:StructuralModel, delay_graph_model:DelayGraphModel):
         print("-- BACKENDS: DELAY_GRAPH_ANALYZER --")
-        for structural_variant in structural_model.getAllVariants():
-            print(f" > Analyzing delay graph for '{structural_variant.name}'")
-            delay_graph_variant = delay_graph_model.variants[structural_variant.name]
+        self.structural_model = structural_model
+        self.delay_graph_model = delay_graph_model
+        self.mappings = { var_name:{} for var_name in self.delay_graph_model.variants }
+        self._zero_delay = SymbolicVariable("zero")
 
-            printed = []
+    def assume_registers_available(self):
+        """
+        Replaces all input registers with a zero delay -> initial availability of registers has no effect.
+        """
+        print(f" > assuming all registers are available")
+        for variant in self.delay_graph_model.variants:
+            mappings = self.mappings[variant]
+            self.mappings[variant] = mappings | { f"r{reg}":self._zero_delay for reg in range(1, 32) }
+        return self
 
+    def assume_no_dynamic_delays(self):
+        """
+        Replaces all dynamic delay with a zero delay -> dynamic delays have no effect and ignored.
+        """
+        print(f" > assuming no dynamic delays")
+        for variant in self.delay_graph_model.variants:
+            delay_graph_variant = self.delay_graph_model.variants[variant]
+            mappings = self.mappings[variant]
             for function_name in delay_graph_variant.scheduling_functions:
-                print(f"  > Analyzing delay graph of '{function_name}'")
-
                 delay_graph = delay_graph_variant.scheduling_functions[function_name]
+                for var in delay_graph.dynamic_variables():
+                    mappings[var] = self._zero_delay
+        return self
 
-                pipeline = structural_variant.getPipeline()
+    def assume_pc_available(self):
+        """
+        Replaces all instances of pc with an equivalent instance of if.
+        """
+        print(f" > assuming: pc = if")
+        for variant in self.delay_graph_model.variants:
+            # TODO: check that 'if' exists
+            self.mappings[variant]["pc"] = SymbolicVariable("if")
+        return self
 
-                mappings = { f"r{reg}":SymbolicVariable("zero") for reg in range(1, 32) }
-                mappings["pc"] = SymbolicVariable("if")
+    def assume_perfect_pipeline(self):
+        printed = []
+        for structural_variant in self.structural_model.getAllVariants():
+            mappings = self.mappings[structural_variant.name]
+            delay_graph_variant = self.delay_graph_model.variants[structural_variant.name]
 
-                stages = pipeline.getFirstStages()
+            pipeline = structural_variant.getPipeline()
+            stages = pipeline.getFirstStages()
+            for function_name in delay_graph_variant.scheduling_functions:
+                delay_graph = delay_graph_variant.scheduling_functions[function_name]
                 while stages:
                     next_stages = []
                     for stage in stages:
-                        timing_variable = stage.name
                         assert stage.capacity == 1
+                        timing_variable = stage.name
                         variable_name = delay_graph.input_to_variable_name(timing_variable)
-                        if variable_name is None:
+                        if variable_name is None: # timing variable not used
                             continue
-                        #print(f"STAGE: {timing_variable} -> {variable_name}")
-
+                        # link all succeeding timing variables to the current timing variable
                         next_stages += pipeline.getNextStages(stage)
                         for next_stage in pipeline.getNextStages(stage):
                             assert next_stage.capacity == 1
-                            #    for fifo_idx in range(0, next_stage.capacity):
-                            #        next_timing_variable = f"{next_stage.name}[{fifo_idx + 1}]"
-                            #        next_variable = delay_graph.input_to_variable_name(next_timing_variable)
-                            #        #print(f"NEXT: {next_variable} = 0")
-                            #else:
                             next_timing_variable = next_stage.name
                             next_variable_name   = delay_graph.input_to_variable_name(next_timing_variable)
-                            if next_variable_name is None:
+                            if next_variable_name is None: # timing variable not used
                                 continue
                             if next_variable_name not in printed:
-                                print(f"   > assuming: {next_variable_name} = 1 + {variable_name}")
+                                print(f" > assuming: {next_variable_name} = 1 + {variable_name}")
                                 printed.append(next_variable_name)
                             mappings[next_variable_name] = SymbolicVariable(variable_name, 1)
                             if next_stage not in next_stages:
                                 next_stages.append(next_stage)
                     stages = next_stages
+                break
+        return self
 
-                #op(mappings)
+    def resolve(self, estimate_cpi=False):
+        """
+        Attempts to simplify all scheduling functions according to assumptions set prior to calling this function.
+        """
+        # TODO: determine dynamically from structural model
+        relationships = {
+            "o_if" : SymbolicVariable("if", 0),
+            "o_id" : SymbolicVariable("if", 1),
+            "o_ex" : SymbolicVariable("if", 2),
+            "o_mem": SymbolicVariable("if", 3),
+            "o_wb" : SymbolicVariable("if", 4)
+        }
+        for variant_name in self.delay_graph_model.variants:
+
+            print(f" > Resolving delay graph for '{variant_name}'")
+
+            delay_graph_variant = self.delay_graph_model.variants[variant_name]
+            mappings = self.mappings[variant_name]
+
+            for function_name in delay_graph_variant.scheduling_functions:
+                print(f"  > Resolving delay graph of '{function_name}'")
+
+                delay_graph = delay_graph_variant.scheduling_functions[function_name]
+                
+                num_instructions = sum([int("Enter" in node) for node in delay_graph.nodes()])
+                estimations = []
 
                 for output_name in delay_graph.outputs():
                     output = delay_graph.get_output(output_name)
@@ -82,10 +132,16 @@ class DelayAnalyzer:
                     before = output
                     for i in range(0, len(mappings)):
                         for mapping in mappings:
-                            #print("replacing", mapping, "with", mappings[mapping])
-
                             output = output.replaced(mapping, mappings[mapping])
                     output = output.resolved("zero")
                     print(f"   > Resolved {output_name.ljust(10)} :  {before}\t \n" + \
                           f"              {"".ljust(10)} => {output}")
+                    if estimate_cpi and output_name in relationships:
+                        relation = relationships[output_name]
+                        estimations.append(SymbolicVariable(output_name, output.max_value(relation.name) - relation.delay))
+                
+                if estimations:
+                    max_val = max(estimations, key=lambda v: (v.delay,relationships[v.name].delay))
+                    print(f"core={variant_name} \tbb={function_name} \tCPI = {max_val.delay}/{num_instructions} = {(max_val.delay / num_instructions):.3f} ({max_val.name})")
+                    #print(" -> CPI", estimations, num_instructions)
 
