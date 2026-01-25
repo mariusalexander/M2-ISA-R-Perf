@@ -161,8 +161,11 @@ if args.block_transform is not None:
                     # only last instruct may be a branch 
                     if idx < len(desc.instructions) - 1:
                         print(desc.instructions)
-                        raise RuntimeError(f"Multiple branch instructions in {desc.name}!")
+                        desc.instructions = []
+                        print(f"Skipping maformed basic block '{desc.name}' (istr. no. {idx})! Cannot determine CPI!")
+                        #raise RuntimeError(f"Multiple branch instructions in {desc.name}!")
             idx += 1
+    descs = [desc for desc in descs if len(desc.instructions) > 0]
 
     # TODO: check which instruction is the best substitution for SimpleRISCV
     if filtered_out_cores:
@@ -181,7 +184,7 @@ if args.block_transform is not None:
                         instr.name = "beq"
                         instr.Xa   = r.zero
                         instr.Xb   = r.zero
-                    case "divu":
+                    case "div" | "divu":
                         instr.name = "mul"
                     case "remu":
                         instr.name = "rem"
@@ -193,7 +196,7 @@ if args.block_transform is not None:
         SchedulingModelViewer().execute(blockSchedule, outDir, cluster=False)
     
     delayModel = DelayGraphTransformer().transform(blockSchedule, unroll_delays=False)
-    DelayGraphViewer().execute(delayModel, outDir)
+    # DelayGraphViewer().execute(delayModel, outDir)
     DelayAnalyzer(structModel, delayModel) \
         .assume_registers_available() \
         .assume_no_dynamic_delays() \
