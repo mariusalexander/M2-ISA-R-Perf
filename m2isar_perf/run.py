@@ -158,11 +158,11 @@ if args.block_transform is not None:
                 # branch and jump instructions
                 case "j" | "jal" | "jalr" | \
                      "beq" | "bne" | "blt" | "bltu" | "bge" |  "bgeu":
-                    # only last instruct may be a branch 
+                    # only last instruct may be a branch
                     if idx < len(desc.instructions) - 1:
                         print(desc.instructions)
                         desc.instructions = []
-                        print(f"Skipping maformed basic block '{desc.name}' (istr. no. {idx})! Cannot determine CPI!")
+                        print(f"Skipping malformed basic block '{desc.name}' (istr. no. {idx})! Cannot determine CPI!")
                         #raise RuntimeError(f"Multiple branch instructions in {desc.name}!")
             idx += 1
     descs = [desc for desc in descs if len(desc.instructions) > 0]
@@ -194,7 +194,7 @@ if args.block_transform is not None:
         BasicBlockTestGenerator().execute(schedModel, blockSchedule, descs, outDir)
     if args.info_print:
         SchedulingModelViewer().execute(blockSchedule, outDir, cluster=False)
-    
+
     delayModel = DelayGraphTransformer().transform(blockSchedule, unroll_delays=False)
     # DelayGraphViewer().execute(delayModel, outDir)
     DelayAnalyzer(structModel, delayModel) \

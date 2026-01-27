@@ -122,7 +122,7 @@ class DelayAnalyzer:
                 print(f"  > Resolving delay graph of '{function_name}'")
 
                 delay_graph = delay_graph_variant.scheduling_functions[function_name]
-                
+
                 num_instructions = sum([int("Enter" in node) for node in delay_graph.nodes()])
                 estimations = []
 
@@ -139,9 +139,9 @@ class DelayAnalyzer:
                     if estimate_cpi and output_name in relationships:
                         relation = relationships[output_name]
                         estimations.append(SymbolicVariable(output_name, output.max_value(relation.name) - relation.delay))
-                
+
                 if estimations:
                     max_val = max(estimations, key=lambda v: (v.delay,relationships[v.name].delay))
-                    print(f"core={variant_name} \tbb={function_name} \tCPI = {max_val.delay}/{num_instructions} = {(max_val.delay / num_instructions):.3f} ({max_val.name})")
+                    print(f"core={variant_name} \tbb={function_name} \tCPI = {f"{max_val.delay}/{num_instructions}":<10} = {(max_val.delay / num_instructions):.3f} \t({max_val.name})")
                     #print(" -> CPI", estimations, num_instructions)
 
