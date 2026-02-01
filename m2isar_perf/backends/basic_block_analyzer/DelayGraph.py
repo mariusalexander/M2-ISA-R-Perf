@@ -81,7 +81,7 @@ class MaxTerm(list):
 
     def resolved(self, variable_name:str) -> 'MaxTerm':
         """
-        Returns a new term in which the variable's value is 
+        Returns a new term in which the variable's value is
         """
         value    = self.max_value(variable_name)
         if value is None:
@@ -197,7 +197,6 @@ class MaxTerm(list):
                 # keep last variable if its scores a lower
                 if curr_len == last_len and factor > last_factor:
                     continue
-                #print(f"INFO: intermediate '{name}' deemed more optimal than '{last_name}'!")
             last_name   = name
             last_factor = factor
             last_len    = curr_len
@@ -318,9 +317,10 @@ class DelayGraph:
 class DelayGraphTransformer:
     """Delay Graph"""
 
-    def __init__(self):
+    def __init__(self, verbose=True):
         # whether to unroll all delay functions
         self.unroll_delays = False
+        self.verbose = True
 
     def transform(self, block_model:SchedulingModel, unroll_delays=False) -> 'DelayGraphModel':
         """
@@ -363,7 +363,8 @@ class DelayGraphTransformer:
 
             # store function of current node
             graph.set_node(node.name, function)
-            self.print_function(node.name, function, indent=3)
+            if self.verbose:
+                self.print_function(node.name, function, indent=3)
 
             # set outputs if any
             intermediate = self.__set_output(node, function, graph)
@@ -381,9 +382,10 @@ class DelayGraphTransformer:
         # make sure all nodes have been processed
         assert all([ n.name in graph.nodes() for n in block_function.getAllNodes() ])
 
-        print(f"   > outputs:")
-        for output in graph.outputs():
-            self.print_function(output, graph.get_output(output), indent=4)
+        if self.verbose:
+            print(f"   > outputs:")
+            for output in graph.outputs():
+                self.print_function(output, graph.get_output(output), indent=4)
 
         return graph
 
@@ -424,7 +426,8 @@ class DelayGraphTransformer:
             variable = self.__simplify_variable_name(edge_name)
             graph.set_output(variable, function, full_name=edge_name)
             intermediate = variable
-            print(" " * 23 + f"- sets '{intermediate}'")
+            if self.verbose:
+                print(" " * 23 + f"- sets '{intermediate}'")
         return intermediate
 
     def __update_intermediates(self, node_name:str, intermediate:str, graph:'DelayGraph') -> None:
@@ -441,14 +444,16 @@ class DelayGraphTransformer:
         if best_match is not None and best_match.name not in current_term:
             other_term = graph.get_intermediate(best_match.name)
             if best_match.delay >= 0:
-                print(f"INFO: intermediate '{intermediate}' is a multiple of '{best_match.name}'! (distance: {best_match.delay})")
+                if self.verbose:
+                    print(f"INFO: intermediate '{intermediate}' is a multiple of '{best_match.name}'! (distance: {best_match.delay})")
                 # link to other intermediate
                 new_term = MaxTerm([best_match])
                 assert len(other_term) == len(expanded), "Necessary to extend term by missing variables?"
                 expanded = new_term
             else:
                 # other intermediate is a negative multiple of this term
-                print(f"INFO: intermediate '{best_match.name}' is a negative multiple of '{intermediate}'! (distance: {best_match.delay})")
+                if self.verbose:
+                    print(f"INFO: intermediate '{best_match.name}' is a negative multiple of '{intermediate}'! (distance: {best_match.delay})")
                 assert len(other_term) == len(expanded)
                 new_term = MaxTerm([SymbolicVariable(intermediate, -best_match.delay)])
                 # update old output

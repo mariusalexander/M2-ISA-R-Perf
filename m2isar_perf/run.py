@@ -162,32 +162,10 @@ if args.block_transform is not None:
                     if idx < len(desc.instructions) - 1:
                         print(desc.instructions)
                         desc.instructions = []
-                        print(f"Skipping malformed basic block '{desc.name}' (istr. no. {idx})! Cannot determine CPI!")
+                        print(f"Skipping malformed basic block '{desc.name}' (istr. no. {idx} is {instr.name})! Cannot determine CPI!")
                         #raise RuntimeError(f"Multiple branch instructions in {desc.name}!")
             idx += 1
     descs = [desc for desc in descs if len(desc.instructions) > 0]
-
-    # TODO: check which instruction is the best substitution for SimpleRISCV
-    if filtered_out_cores:
-        for desc in descs:
-            for instr in desc.instructions:
-                match instr.name:
-                    case "srai" | "slli" | "srli" | "srl" | "sra":
-                        instr.name = "sll"
-                        instr.Xb   = r.zero
-                    case "sltu":
-                        instr.name = "sltiu"
-                    case "lui" | "auipc":
-                        instr.name = "lw"
-                        instr.Xa   = r.zero
-                    case "jal" | "jalr":
-                        instr.name = "beq"
-                        instr.Xa   = r.zero
-                        instr.Xb   = r.zero
-                    case "div" | "divu":
-                        instr.name = "mul"
-                    case "remu":
-                        instr.name = "rem"
 
     blockSchedule = BlockSchedulingTransformer().transform(schedModel, descs)
     if args.code_gen:
@@ -195,7 +173,7 @@ if args.block_transform is not None:
     if args.info_print:
         SchedulingModelViewer().execute(blockSchedule, outDir, cluster=False)
 
-    delayModel = DelayGraphTransformer().transform(blockSchedule, unroll_delays=False)
+    delayModel = DelayGraphTransformer(verbose=False).transform(blockSchedule, unroll_delays=False)
     # DelayGraphViewer().execute(delayModel, outDir)
     DelayAnalyzer(structModel, delayModel) \
         .assume_registers_available() \
