@@ -105,8 +105,9 @@ class BasicBlockDescription:
 class BlockSchedulingTransformer:
     """Block Scheduling Transformer"""
 
-    def __init__(self):
+    def __init__(self, verbose=True):
         self._id = 1024
+        self.verbose = verbose
         # whether to use more descriptive names for edges to registers, like 'r2 (Xa)' instead of 'Xa'
         self.rename_edges = True
         # TODO: infer these attributes dynamically from core perf dsl or the struct model
@@ -165,6 +166,10 @@ class BlockSchedulingTransformer:
         # mappings for register models
         for reg_model in self._register_models:
             mappings[reg_model] = { reg:None for reg in range(0, self._register_count) }
+        # mappings for branch prediction
+        # TODO: infer connectors automatically
+        for pred_model in self._branch_prediction_models:
+            mappings[pred_model] = { c:None for c in ["Pc", "Pc_p", "Pc_np"] }
 
         sched_functions = sched_variant.getAllSchedulingFunctions()
 
@@ -186,7 +191,8 @@ class BlockSchedulingTransformer:
         """
         """
         block_instr = block_desc.instructions[block_idx]
-        print(f"   > Appending instruction '{block_instr.name}' (id: {sched_function.identifier})...")
+        if self.verbose:
+            print(f"   > Appending instruction '{block_instr.name}' (id: {sched_function.identifier})...")
 
         root_node = sched_function.getRootNode()
         assert root_node
@@ -198,15 +204,19 @@ class BlockSchedulingTransformer:
             source_node = queue.popleft()
             assert source_node not in visited
             visited.append(source_node)
+
             # create node
             block_node  = block_function.createNode(f"{source_node.name}_{block_idx}")
             self.__copyNode(source_node, block_node)
+
             # setup ingoing connections
             for in_node_i in source_node.getAllInNodes():
                 dependency = self.__findNode(block_function, block_idx, in_node_i)
                 dependency.connectNode(block_node)
+
             # resolve edges
             self.__resolveInternalEdges(source_node, block_node, block_desc, block_idx, mappings)
+
             # iterate over children if all dependencies have been met
             for next_node_i in source_node.getAllOutNodes():
                 if all((predecessor in reversed(visited)) for predecessor in next_node_i.getAllInNodes()):
@@ -218,7 +228,8 @@ class BlockSchedulingTransformer:
         # setup root node respectively
         if not block_function.getRootNode():
             root_node = self.__findNode(block_function, block_idx, root_node)
-            print(f"   > Setting root node: '{root_node.name}'")
+            if self.verbose:
+                print(f"   > Setting root node: '{root_node.name}'")
             block_function.setRootNode(root_node)
 
         assert not sched_function.endNode, "It is assumed, that `SchedulingFunction.endNode` is not used"
@@ -238,7 +249,7 @@ class BlockSchedulingTransformer:
                 self.__resolveRegisterInEdge(block_node, edge, block_desc, block_idx, mappings, connector_model)
                 continue
             if connector_model in self._branch_prediction_models:
-                self.__resolveBranchPredictionInEdge(block_node, edge, block_idx, connector_model)
+                self.__resolveBranchPredictionInEdge(block_node, edge, block_desc, block_idx, mappings, connector_model)
                 continue
             raise RuntimeError(f"Ingoing edge to '{connector_model}' is not handeld! Supported are {", ".join(self._supported_models)}")
         # out edges
@@ -255,13 +266,14 @@ class BlockSchedulingTransformer:
                 self.__resolveRegisterOutEdge(block_node, edge, block_desc, block_idx, mappings, connector_model)
                 continue
             if connector_model in self._branch_prediction_models:
-                self.__resolveBranchPredictionOutEdge(block_node, edge, block_desc, block_idx, connector_model)
+                self.__resolveBranchPredictionOutEdge(block_node, edge, block_desc, block_idx, mappings, connector_model)
                 continue
             raise RuntimeError(f"Outgoing edge to '{connector_model}' is not handeld! Supported are {", ".join(self._supported_models)}")
 
     def __resolveOutgoingEdges(self, block_function:SchedulingFunction, mappings):
         self.__resolveOutgoingTimingVariables(block_function, mappings)
         self.__resolveOutgoingRegisters(mappings)
+        self.__resolveOutgoingBranchPredictions(mappings)
 
     def __resolveTimingVariableInEdge(self, block_node:Node, edge:StaticEdge, mappings):
         timing_variable = edge.timingVariable.name
@@ -276,7 +288,8 @@ class BlockSchedulingTransformer:
             block_node.createStaticInEdge(timing_variable, edge.depth - current_depth)
             return
         # connect to previous node
-        print (f"   > Resolved timing variable: Node '{block_node.name}' links to '{last_node.name}' ({timing_variable}[{edge.depth}])")
+        if self.verbose:
+            print(f"   > Resolved timing variable: Node '{block_node.name}' links to '{last_node.name}' ({timing_variable}[{edge.depth}])")
         last_node.connectNode(block_node)
 
     def __resolveTimingVariableOutEdge(self, block_node:Node, edge:StaticEdge, block_idx:int, mappings):
@@ -284,7 +297,8 @@ class BlockSchedulingTransformer:
         history = mappings[timing_variable]
         assert edge.depth == 1, f"Expected outgoing edges to have a depth == 1 (acutal depth: {out_edge.depth})!"
         # update and right-shift history
-        print (f"    > Resolved timing variable: Node '{block_node.name}' sets '{timing_variable}'")
+        if self.verbose:
+            print(f"    > Resolved timing variable: Node '{block_node.name}' sets '{timing_variable}'")
         mappings[timing_variable] = [block_node] + history[:-1]
 
     def __resolveOutgoingTimingVariables(self, block_function:SchedulingFunction, mappings):
@@ -313,11 +327,13 @@ class BlockSchedulingTransformer:
         assert registerNo is not None, f"{block_desc.name}: Instruction '{instr.name}' requires register '{edge.name}'! (undefined)"
         last_node  = registers[registerNo]
         if not last_node:
-            print (f"    > Resolved {model}: Node '{block_node.name}' uses 'r{registerNo} ({edge.name})'")
+            if self.verbose:
+                print(f"    > Resolved {model}: Node '{block_node.name}' uses 'r{registerNo} ({edge.name})'")
             edge_name = f"r{registerNo} ({edge.name})" if self.rename_edges else edge.name
             block_node.createDynamicInEdge(edge_name, model) # append edge
             return
-        print (f"    > Resolved {model}: Node '{block_node.name}' uses 'r{registerNo} ({edge.name})' set by '{last_node.name}'")
+        if self.verbose:
+            print(f"    > Resolved {model}: Node '{block_node.name}' uses 'r{registerNo} ({edge.name})' set by '{last_node.name}'")
         last_node.connectNode(block_node)
 
     def __resolveRegisterOutEdge(self, block_node:Node, edge:StaticEdge, block_desc:BasicBlockDescription, block_idx:int, mappings, model:str):
@@ -325,7 +341,8 @@ class BlockSchedulingTransformer:
         assert edge.name == self._target_register_mapping[model], f"'{edge.name}' was not recognized as a target register (e.g. Xd, Rd, ...)"
         registers  = mappings[model]
         registerNo = instr[edge.name]
-        print (f"    > Resolved register: Node '{block_node.name}' sets 'r{registerNo} ({edge.name})'")
+        if self.verbose:
+            print(f"    > Resolved {model}: Node '{block_node.name}' sets 'r{registerNo} ({edge.name})'")
         registers[registerNo]  = block_node
 
     def __resolveOutgoingRegisters(self, mappings):
@@ -337,24 +354,66 @@ class BlockSchedulingTransformer:
                 if not block_node:
                     continue
                 target_register = self._target_register_mapping[model]
-                print (f"    > Resolved register: Node '{block_node.name}' outputs 'r{registerNo} ({target_register})' ({model})")
+                if self.verbose:
+                    print(f"    > Resolved register: Node '{block_node.name}' outputs 'r{registerNo} ({target_register})' ({model})")
                 edge_name = f"r{registerNo} ({target_register})" if self.rename_edges else target_register
                 block_node.createDynamicOutEdge(edge_name, model)
 
-    def __resolveBranchPredictionInEdge(self, block_node:Node, edge:StaticEdge, block_idx:int, model:str):
-        if block_idx == 0:
-            block_node.createDynamicInEdge(edge.name, model)
+    def __resolveBranchPredictionInEdge(self, block_node:Node, edge:StaticEdge, block_desc:BasicBlockDescription, block_idx:int, mappings, model:str):
+        instr = block_desc.instructions[block_idx]
+        pred_model = mappings[model]
+        last_node  = pred_model[edge.name]
+        assert edge.name == "Pc"
+        if not last_node:
+            if self.verbose:
+                print(f"    > Resolved {model}: Node '{block_node.name}' uses '{edge.name}'")
+            block_node.createDynamicInEdge(edge.name, model) # append edge
+            return
+        if self.verbose:
+            print(f"    > Resolved {model}: Node '{block_node.name}' uses '{edge.name}' set by '{last_node.name}'")
+        last_node.connectNode(block_node)
 
-    def __resolveBranchPredictionOutEdge(self, block_node:Node, edge:StaticEdge, block_desc:BasicBlockDescription, block_idx:int, model:str):
-        instructions = block_desc.instructions
-        if block_idx == len(instructions) - 1 and self.__isBranchInstruction(instructions[block_idx]):
-            block_node.createDynamicOutEdge(edge.name, model)
+    def __resolveBranchPredictionOutEdge(self, block_node:Node, edge:StaticEdge, block_desc:BasicBlockDescription, block_idx:int, mappings, model:str):
 
+        instr = block_desc.instructions[block_idx]
+        pred_model = mappings[model]
+        assert edge.name in ["Pc_p", "Pc_np"]
+        if self.verbose:
+            print(f"    > Resolved {model}: Node '{block_node.name}' sets 'Pc' ({edge.name})")
+        if edge.name == "Pc_np":
+            # The pc_np path has no effect if branch prediction predicts correctly.
+            # TODO: Can we model more dynamic branch prediction?
+            if model != "noBranchPredModel":
+                return
+            #def twos_comp(val, bits):
+            #    """compute the 2's complement of int value val"""
+            #    if (val & (1 << (bits - 1))) != 0: # if sign bit is set e.g., 8bit: 128-255
+            #        val = val - (1 << bits)        # compute negative value
+            #    return val                         # return positive value as is
 
-    def __isBranchInstruction(self, instr):
-        # TODO: refine solution (annoate in corePerfDsl?)
-        # check if instructions starts with 'b' (sufficient for RISC-V Integer ISA?)
-        return instr.name[0] == 'b'
+            #imm  = instr["imm"]
+            #assert imm is not None, f"branch instruction has no target (imm value is empty)! {instr}"
+            #comp = twos_comp(int(imm), 13)
+            #new_node = block_node.parentSchedulingFunction.createNode(f"{model}_{block_idx}")
+            #block_node.connectNode(new_node)
+            #block_node = new_node
+        # pc_p and pc_np become the new pc inputs
+        pred_model["Pc"]      = block_node
+        pred_model[edge.name] = block_node
+
+    def __resolveOutgoingBranchPredictions(self, mappings):
+        for model in self._branch_prediction_models:
+            mapping = mappings[model]
+            for connector in mapping:
+                # pc path is input only
+                if connector == "Pc":
+                    continue
+                block_node = mapping[connector]
+                if not block_node:
+                    continue
+                if self.verbose:
+                    print(f"    > Resolved {model}: Node '{block_node.name}' outputs '{connector}'")
+                block_node.createDynamicOutEdge(connector, model)
 
     def __findElementByName(self, elements, name, error_str = ""):
         element = list(filter(lambda e: e.name == name, elements))

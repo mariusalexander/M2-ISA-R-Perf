@@ -21,7 +21,6 @@ import pathlib
 import pickle
 import sys
 import os
-from objprint import op
 
 from common import common as cf
 
@@ -48,6 +47,7 @@ argParser.add_argument("-m", "--monitor_description", action="store_true", help=
 argParser.add_argument("-i", "--info_print", action="store_true", help="Generate info/debug/doc prints")
 argParser.add_argument("-d", "--dump_dir", help="Directory to dump intermediatly generated models.")
 argParser.add_argument("-b", "--block_transform", nargs='?', type=argparse.FileType('r'), const=True, help="Basic Block to transform")
+argParser.add_argument("--filter", action="store_true", help="Whether to filter out Simple RISCV cores")
 args = argParser.parse_args()
 
 # Resolve outDir
@@ -58,13 +58,14 @@ filtered_out_cores = False
 if args.description.endswith('.corePerfDsl'):
     structModel = Frontend.execute(args.description, args.dump_dir)
 
-    # TODO: define whitelist/backlist by argument
-    # filter out unneeded variants of SimpleRISCV cores
-    variants = structModel.variants
-    structModel.variants = [ var for var in structModel.variants if "SimpleRISCV" not in var.name or "StaBrPred" in var.name]
-    for var in [var for var in variants if var not in structModel.variants]:
-        print(f"WARNING: Filtered out variant '{var.name}'!")
-        filtered_out_cores = True
+    if args.filter:
+        # TODO: define whitelist/backlist by argument
+        # filter out unneeded variants of SimpleRISCV cores
+        variants = structModel.variants
+        structModel.variants = [ var for var in structModel.variants if "SimpleRISCV" not in var.name or "NoBrPred" in var.name]
+        for var in [var for var in variants if var not in structModel.variants]:
+            print(f"WARNING: Filtered out variant '{var.name}'!")
+            filtered_out_cores = True
 else:
     sys.exit("FATAL: Description format is not supported. Currently only supporting files of type .corePerfDsl")
 
@@ -85,6 +86,7 @@ if args.block_transform is not None:
 
     descs = []
     r = AbiRegisters()
+    verbose = False
 
     # TODO: only temporary for testing, remove this block
     if args.block_transform is True: # no argument -> load test basic blocks
@@ -111,7 +113,8 @@ if args.block_transform is not None:
         desc.addInstruction("srli", rd = 8, rs1= 8)
         desc.addInstruction("addi", rd = 9, rs1= 9)
         desc.addInstruction("xor" , rd = 8, rs1=15, rs2= 8)
-        desc.addInstruction("bne" , rs1= 9, rs2= 0)
+        desc.addInstruction("bne" , rs1= 9, rs2= 0, imm=8080)
+        #desc.addInstruction("andi", rd =15, rs1=15)
         descs.append(desc)
 
         desc = BasicBlockDescription("bb_addi_add_add", 0x000003c4)
@@ -126,13 +129,13 @@ if args.block_transform is not None:
         desc.addInstruction("sw"  , rs1=3, rs2=4)
         descs.append(desc)
 
-        desc = BasicBlockDescription("bb_addi", 0x000003c4)
-        desc.addInstruction("addi", rd=4, rs1=3, imm=255)
-        descs.append(desc)
+        descs = [descs[-3]]
 
     else:
 
         print("-- FRONTEND: PARSING BASIC BLOCK --")
+
+        # parse basic block from file
         file = args.block_transform
         filename = os.path.basename(file.name.replace(".txt", ""))
         desc = BasicBlockDescription(filename, int(os.path.splitext(filename)[0], 16))
@@ -160,21 +163,17 @@ if args.block_transform is not None:
                      "beq" | "bne" | "blt" | "bltu" | "bge" |  "bgeu":
                     # only last instruct may be a branch
                     if idx < len(desc.instructions) - 1:
-                        print(desc.instructions)
-                        desc.instructions = []
-                        print(f"Skipping malformed basic block '{desc.name}' (istr. no. {idx} is {instr.name})! Cannot determine CPI!")
-                        #raise RuntimeError(f"Multiple branch instructions in {desc.name}!")
+                        print(f"WARNING: basic block '{desc.name}' contains multiple branches (istr. no. {idx} is {instr.name})!")
             idx += 1
     descs = [desc for desc in descs if len(desc.instructions) > 0]
 
-    blockSchedule = BlockSchedulingTransformer().transform(schedModel, descs)
+    blockSchedule = BlockSchedulingTransformer(verbose=verbose).transform(schedModel, descs)
     if args.code_gen:
         BasicBlockTestGenerator().execute(schedModel, blockSchedule, descs, outDir)
     if args.info_print:
         SchedulingModelViewer().execute(blockSchedule, outDir, cluster=False)
-
-    delayModel = DelayGraphTransformer(verbose=False).transform(blockSchedule, unroll_delays=False)
-    # DelayGraphViewer().execute(delayModel, outDir)
+    delayModel = DelayGraphTransformer(verbose=verbose).transform(blockSchedule, unroll_delays=False)
+    #DelayGraphViewer().execute(delayModel, outDir)
     DelayAnalyzer(structModel, delayModel) \
         .assume_registers_available() \
         .assume_no_dynamic_delays() \

@@ -105,6 +105,7 @@ class DelayAnalyzer:
         """
         # TODO: determine dynamically from structural model
         relationships = {
+            "o_pc_np" : SymbolicVariable("if", 0), # branch prediction
             "o_if" : SymbolicVariable("if", 0),
             "o_id" : SymbolicVariable("if", 1),
             "o_ex" : SymbolicVariable("if", 2),
@@ -141,7 +142,7 @@ class DelayAnalyzer:
                         estimations.append(SymbolicVariable(output_name, output.max_value(relation.name) - relation.delay))
 
                 if estimations:
+                    print(f"estimations -> max({", ".join([f"{e}" for e in estimations])})")
                     max_val = max(estimations, key=lambda v: (v.delay,relationships[v.name].delay))
                     print(f"core={variant_name} \tbb={function_name} \tCPI = {f"{max_val.delay}/{num_instructions}":<10} = {(max_val.delay / num_instructions):.3f} \t({max_val.name})")
-                    #print(" -> CPI", estimations, num_instructions)
 

@@ -320,7 +320,7 @@ class DelayGraphTransformer:
     def __init__(self, verbose=True):
         # whether to unroll all delay functions
         self.unroll_delays = False
-        self.verbose = True
+        self.verbose = verbose
 
     def transform(self, block_model:SchedulingModel, unroll_delays=False) -> 'DelayGraphModel':
         """
