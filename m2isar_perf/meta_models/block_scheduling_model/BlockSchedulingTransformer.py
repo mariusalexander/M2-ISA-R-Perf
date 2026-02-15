@@ -99,7 +99,7 @@ class BasicBlockDescription:
             "Cb_out" : rd,
         })
         for i in kwargs:
-            print(f" > ignoring register {i} : {kwargs[i]}!")
+            print(f" > ignoring register '{i}': {kwargs[i]}!")
         self.instructions.append(instr)
 
 class BlockSchedulingTransformer:
@@ -374,7 +374,6 @@ class BlockSchedulingTransformer:
         last_node.connectNode(block_node)
 
     def __resolveBranchPredictionOutEdge(self, block_node:Node, edge:StaticEdge, block_desc:BasicBlockDescription, block_idx:int, mappings, model:str):
-
         instr = block_desc.instructions[block_idx]
         pred_model = mappings[model]
         assert edge.name in ["Pc_p", "Pc_np"]

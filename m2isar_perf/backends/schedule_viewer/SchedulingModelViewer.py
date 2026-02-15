@@ -25,7 +25,9 @@ class SchedulingModelViewer:
     def __init__(self):
         self.tempDirBase = pathlib.Path(__file__).parent / "temp"
 
-    def execute(self, model_, outDir_, cluster=False):
+    def execute(self, model_, outDir_, alternate_color=False, show_delays=False, ):
+        self.show_delays = show_delays
+        self.alternate_color = alternate_color
 
         print()
         print("-- BACKEND: SCHEDULE_VIEWER --")
@@ -79,27 +81,8 @@ class SchedulingModelViewer:
                             bottom.node(self.__connectorModelOut(conModel_i.name), label=conModel_i.name, shape='box')
 
                     # Make nodes for scheduling function nodes
-                    if cluster:
-                        clusters = {}
-                        for node_i in func_i.getAllNodes():
-                            sub_str = node_i.name[node_i.name.rindex("_") + 1:] if '_' in node_i.name else node_i.name
-                            instr_idx = int(sub_str) if sub_str.isdigit() else 0
-                            if instr_idx not in clusters:
-                                # clusters are denoted by a name starting with 'cluster_'
-                                subgraph = graphviz.Digraph(name=f"cluster_{instr_idx}")
-                                subgraph.attr(style="filled", color="lightgrey", label=f"instruction no. {instr_idx}")
-                                clusters[instr_idx] = subgraph
-                                self.__generateNode(subgraph, node_i)
-                            else:
-                                subgraph = clusters[instr_idx]
-                                self.__generateNode(subgraph, node_i)
-                        # once all clusters are filled append as subgraph
-                        for instr_idx in clusters:
-                            subgraph = clusters[instr_idx]
-                            dotGraph.subgraph(subgraph)
-                    else:
-                        for node_i in func_i.getAllNodes():
-                            self.__generateNode(dotGraph, node_i)
+                    for node_i in func_i.getAllNodes():
+                        self.__generateNode(dotGraph, node_i)
 
                     #dotGraph.render('graph', format='png', view=True)
 
@@ -112,7 +95,21 @@ class SchedulingModelViewer:
                     os.replace(f"{str(tempDir)}/{func_i.name}.pdf", f"{str(outDir / func_i.name)}/{func_i.name}_schedulingFunction.pdf")
 
     def __generateNode(self, dotGraph, node_i):
-        dotGraph.node(self.__scheduleNode(node_i.name), label=node_i.name, shape='ellipse')
+        label = f"{node_i.name}\n(+{node_i.delay})" if self.show_delays else node_i.name
+        fill  = style = None
+        if self.alternate_color:
+            try:
+                instr_idx = int(node_i.name[node_i.name.rindex("_") + 1:])
+            except ValueError:
+                instr_idx = 0
+            match instr_idx % 3:
+                case 1:
+                    fill = "lightgray"
+                    style = "filled"
+                case 2:
+                    fill = "lightyellow"
+                    style = "filled"
+        dotGraph.node(self.__scheduleNode(node_i.name), label=label, shape='ellipse', style=style, fillcolor=fill)
         # Connect resource model
         if node_i.hasDynamicDelay():
             resModelName = node_i.getResourceModel().name

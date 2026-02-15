@@ -48,6 +48,9 @@ argParser.add_argument("-i", "--info_print", action="store_true", help="Generate
 argParser.add_argument("-d", "--dump_dir", help="Directory to dump intermediatly generated models.")
 argParser.add_argument("-b", "--block_transform", nargs='?', type=argparse.FileType('r'), const=True, help="Basic Block to transform")
 argParser.add_argument("--filter", action="store_true", help="Whether to filter out Simple RISCV cores")
+argParser.add_argument("--verbose", action="store_true", help="Whether to enable verbose output for block transformation and delay analysis")
+argParser.add_argument("--nobrpred", action="store_true", help="Use models with no branch prediction")
+argParser.add_argument("--delay-graph", action="store_true", help="Whether to generate a delay graph")
 args = argParser.parse_args()
 
 # Resolve outDir
@@ -62,7 +65,8 @@ if args.description.endswith('.corePerfDsl'):
         # TODO: define whitelist/backlist by argument
         # filter out unneeded variants of SimpleRISCV cores
         variants = structModel.variants
-        structModel.variants = [ var for var in structModel.variants if "SimpleRISCV" not in var.name or "NoBrPred" in var.name]
+        filter_name = "StaBrPred" if not args.nobrpred else "NoBrPred"
+        structModel.variants = [ var for var in structModel.variants if "SimpleRISCV" not in var.name or filter_name in var.name]
         for var in [var for var in variants if var not in structModel.variants]:
             print(f"WARNING: Filtered out variant '{var.name}'!")
             filtered_out_cores = True
@@ -86,7 +90,6 @@ if args.block_transform is not None:
 
     descs = []
     r = AbiRegisters()
-    verbose = False
 
     # TODO: only temporary for testing, remove this block
     if args.block_transform is True: # no argument -> load test basic blocks
@@ -129,7 +132,12 @@ if args.block_transform is not None:
         desc.addInstruction("sw"  , rs1=3, rs2=4)
         descs.append(desc)
 
-        descs = [descs[-3]]
+        desc = BasicBlockDescription("bb_mul_example", 0x000003c4)
+        desc.addInstruction("mul" , rd=4, rs1=5, rs2=6)
+        desc.addInstruction("mul" , rd=7, rs1=8, rs2=9)
+        descs.append(desc)
+
+        descs = [descs[-1]]
 
     else:
 
@@ -138,16 +146,29 @@ if args.block_transform is not None:
         # parse basic block from file
         file = args.block_transform
         filename = os.path.basename(file.name.replace(".txt", ""))
-        desc = BasicBlockDescription(filename, int(os.path.splitext(filename)[0], 16))
+        try:
+            address_start = int(os.path.splitext(filename)[0], 16)
+        except ValueError:
+            address_start = 0
+        desc = BasicBlockDescription(filename, address_start)
 
         file.seek(0)
         for line in file.readlines():
-            idx = line.index("#")
+            line = line.strip()
+            try:
+                idx = line.index("#")
+            except ValueError:
+                if line == "exit":
+                    break
+                if line:
+                    print(f"Skipping invalid line! '{line}'")
+                continue
             instr_name = line[:idx].strip()
             idx = line.index('[')
             registers = line[idx+1:].replace(']', '').split('|')
             registers = [ tuple(r.strip().split("=")) for r in registers]
             desc.addInstruction(instr_name, **{r[0]:int(r[1]) for r in registers if r[0]})
+
         descs.append(desc)
 
     # TODO: temporary sanity checks
@@ -167,16 +188,16 @@ if args.block_transform is not None:
             idx += 1
     descs = [desc for desc in descs if len(desc.instructions) > 0]
 
-    blockSchedule = BlockSchedulingTransformer(verbose=verbose).transform(schedModel, descs)
+    blockSchedule = BlockSchedulingTransformer(verbose=args.verbose).transform(schedModel, descs)
     if args.code_gen:
         BasicBlockTestGenerator().execute(schedModel, blockSchedule, descs, outDir)
     if args.info_print:
-        SchedulingModelViewer().execute(blockSchedule, outDir, cluster=False)
-    delayModel = DelayGraphTransformer(verbose=verbose).transform(blockSchedule, unroll_delays=False)
-    #DelayGraphViewer().execute(delayModel, outDir)
-    DelayAnalyzer(structModel, delayModel) \
+        SchedulingModelViewer().execute(blockSchedule, outDir, alternate_color=True, show_delays=True)
+    delayModel = DelayGraphTransformer(verbose=args.verbose).transform(blockSchedule, simplify=True)
+    if args.delay_graph:
+        DelayGraphViewer().execute(delayModel, outDir)
+    DelayAnalyzer(structModel, delayModel, verbose=args.verbose) \
         .assume_registers_available() \
-        .assume_no_dynamic_delays() \
         .assume_pc_available() \
         .assume_perfect_pipeline() \
         .resolve(estimate_cpi=True)

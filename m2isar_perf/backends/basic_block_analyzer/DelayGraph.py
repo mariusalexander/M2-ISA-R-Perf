@@ -36,7 +36,7 @@ class SymbolicVariable:
     def __repr__(self):
         return self.__str__()
 
-    def merge(self, delay:int) -> 'SymbolicVariable':
+    def merged(self, delay:int) -> 'SymbolicVariable':
         return SymbolicVariable(self.name, self.delay + delay)
 
 class MaxTerm(list):
@@ -81,7 +81,7 @@ class MaxTerm(list):
 
     def resolved(self, variable_name:str) -> 'MaxTerm':
         """
-        Returns a new term in which the variable's value is
+        Returns a new term in which the variable's delay is merged with all other variables by evaluating the max delay.
         """
         value    = self.max_value(variable_name)
         if value is None:
@@ -100,7 +100,7 @@ class MaxTerm(list):
         Replaces all instances of `variable_name` with `new_variable.name` and merges the delays.
         Returns a new, simplified term.
         """
-        new_term = MaxTerm([v if v.name != variable_name else new_variable.merge(v.delay) for v in self])
+        new_term = MaxTerm([v if v.name != variable_name else new_variable.merged(v.delay) for v in self])
         return new_term.simplified()
 
     def expanded(self, intermediates:Dict[str, 'MaxTerm']) -> 'MaxTerm':
@@ -108,8 +108,8 @@ class MaxTerm(list):
         Expands (unrolls) all intermediate variables by their corresponding variables.
         Returns a new, simplified term.
         """
-        expanded = MaxTerm([i.merge(v.delay) for v in self if v.name in intermediates for i in intermediates[v.name]] + \
-                           [v                for v in self if v.name not in intermediates])
+        expanded = MaxTerm([i.merged(v.delay) for v in self if v.name in intermediates for i in intermediates[v.name]] + \
+                           [v                 for v in self if v.name not in intermediates])
         assert all([i.name not in intermediates for i in expanded])
         return expanded.simplified()
 
@@ -319,17 +319,17 @@ class DelayGraphTransformer:
 
     def __init__(self, verbose=True):
         # whether to unroll all delay functions
-        self.unroll_delays = False
-        self.verbose = verbose
+        self.simplify = True
+        self.verbose  = verbose
 
-    def transform(self, block_model:SchedulingModel, unroll_delays=False) -> 'DelayGraphModel':
+    def transform(self, block_model:SchedulingModel, simplify=True) -> 'DelayGraphModel':
         """
         Transforms a (block) scheduling model into a delay graph.
         For each scheduling function a dict of its outputs and the respective delay functions (max term) is returned.
         Setting `unroll_delays` to `True` will yield a delay graph with a depth of one, i.e. no max terms are shared.
         """
         print("-- BACKENDS: DELAY_GRAPH --")
-        self.unroll_delays = unroll_delays
+        self.simplify = simplify
         model = DelayGraphModel()
         # iterate over each variant
         for block_variant in block_model.getAllVariants():
@@ -370,7 +370,7 @@ class DelayGraphTransformer:
             intermediate = self.__set_output(node, function, graph)
 
             # create intermediate output if function is a max node (multiple input edges)
-            if not self.unroll_delays:
+            if self.simplify:
                 if intermediate is not None and len(function) > 1:
                     self.__update_intermediates(node.name, intermediate, graph)
 
@@ -406,9 +406,10 @@ class DelayGraphTransformer:
         # append in node to function
         for in_node in node.getAllInNodes():
             for variable in graph.get_node(in_node.name):
-                term.append(variable.merge(node.delay))
+                term.append(variable.merged(node.delay))
         # append variable delay of resource model
         if node.resourceModel:
+            # use name of node as unique resource delay
             variable = self.__simplify_variable_name(node.name)
             graph.register_dynamic_variable(node.name, variable)
             variable = SymbolicVariable(variable, node.delay)
@@ -432,7 +433,7 @@ class DelayGraphTransformer:
 
     def __update_intermediates(self, node_name:str, intermediate:str, graph:'DelayGraph') -> None:
         """
-        Creates an intermedaite output for the function of the current node, if no other intermediate covers this node.
+        Creates an intermediate output for the function of the current node, if no other intermediate covers this node.
         Otherwise, all references are updated.
         """
         current_term = graph.get_node(node_name)
