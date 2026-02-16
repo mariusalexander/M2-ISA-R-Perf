@@ -137,6 +137,13 @@ if args.block_transform is not None:
         desc.addInstruction("mul" , rd=7, rs1=8, rs2=9)
         descs.append(desc)
 
+        desc = BasicBlockDescription("bb_meeting_example", 0x000003c4)
+        desc.addInstruction("mul" , rd=1, rs1=10, rs2=11)
+        desc.addInstruction("add" , rd=2, rs1=10, rs2=11)
+        desc.addInstruction("add" , rd=3, rs1=10, rs2=11)
+        desc.addInstruction("add" , rd=4, rs1=1 , rs2=11)
+        descs.append(desc)
+
         descs = [descs[-1]]
 
     else:
@@ -193,11 +200,12 @@ if args.block_transform is not None:
         BasicBlockTestGenerator().execute(schedModel, blockSchedule, descs, outDir)
     if args.info_print:
         SchedulingModelViewer().execute(blockSchedule, outDir, alternate_color=True, show_delays=True)
-    delayModel = DelayGraphTransformer(verbose=args.verbose).transform(blockSchedule, simplify=True)
+    delayModel = DelayGraphTransformer(verbose=args.verbose).transform(blockSchedule, simplify=False)
     if args.delay_graph:
         DelayGraphViewer().execute(delayModel, outDir)
     DelayAnalyzer(structModel, delayModel, verbose=args.verbose) \
         .assume_registers_available() \
+        .assume_no_dynamic_delays() \
         .assume_pc_available() \
         .assume_perfect_pipeline() \
         .resolve(estimate_cpi=True)

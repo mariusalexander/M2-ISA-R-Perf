@@ -298,6 +298,9 @@ class DelayGraph:
     def dynamic_variables(self) -> List[str]:
         return self._dynamic_variables
 
+    def get_dynamic_variable(self, variable_name:str) -> 'MaxTerm':
+        return self._dynamic_variables[variable_name]
+
     def register_dynamic_variable(self, full_name:str, variable_name:str) -> None:
         self.register_input(full_name, variable_name)
         if variable_name not in self._dynamic_variables:
