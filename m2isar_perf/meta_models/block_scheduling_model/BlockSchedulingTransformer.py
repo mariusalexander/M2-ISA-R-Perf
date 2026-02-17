@@ -125,6 +125,7 @@ class BlockSchedulingTransformer:
         Transforms basic blocks (BB) into a block scheudling model.
         The model is a regular Scheduling Model which only contains a scheduling function for each BB.
         """
+        print()
         print("-- TRANSMFORMER: BLOCK_SCHEDULING_MODEL --")
 
         blockSchedulingModel = SchedulingModel()

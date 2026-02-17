@@ -25,6 +25,7 @@ from meta_models.structural_model.StructuralModel import StructuralModel, Varian
 class DelayAnalyzer:
 
     def __init__(self, structural_model:StructuralModel, delay_graph_model:DelayGraphModel, verbose=True):
+        print()
         print("-- BACKENDS: DELAY_GRAPH_ANALYZER --")
         self.verbose = verbose
         self.structural_model = structural_model

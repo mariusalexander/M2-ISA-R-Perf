@@ -54,6 +54,9 @@ class MaxTerm(list):
     def __add__(self, value:SymbolicVariable):
         return super().__add__(value)
 
+    def __eq__(self, other):
+        return len(self) == len(other) and all([v.name in other and other.max_value(v.name) == v.delay for v in self])
+
     def __contains__(self, value:str|SymbolicVariable) -> bool:
         if isinstance(value, str):
             assert self.count(v.name == value for v in self) <= 1, f"Duplicate variable '{value}'!"
@@ -77,7 +80,7 @@ class MaxTerm(list):
     def plus(self, value:int) -> 'MaxTerm':
         if value < 0:
             raise ValueError("Only positive values are allowed")
-        return MaxTerm([v.merge(value) for v in self]).simplified()
+        return MaxTerm([v.merged(value) for v in self]).simplified()
 
     def resolved(self, variable_name:str) -> 'MaxTerm':
         """
@@ -278,7 +281,7 @@ class DelayGraph:
         self._intermediates[variable_name] = function
 
     def replace_intermediate(self, variable_name:str, replacement:str, delay=None) -> None:
-        assert replacement in self._intermediates, f"Unkown intermediate '{replacement}'!"
+        assert replacement in self._intermediates, f"Unknown intermediate '{replacement}'!"
         del self._intermediates[variable_name]
         for name in self.nodes():
             for var in self.get_node(name):
@@ -331,6 +334,7 @@ class DelayGraphTransformer:
         For each scheduling function a dict of its outputs and the respective delay functions (max term) is returned.
         Setting `unroll_delays` to `True` will yield a delay graph with a depth of one, i.e. no max terms are shared.
         """
+        print()
         print("-- BACKENDS: DELAY_GRAPH --")
         self.simplify = simplify
         model = DelayGraphModel()
@@ -459,11 +463,13 @@ class DelayGraphTransformer:
                 if self.verbose:
                     print(f"INFO: intermediate '{best_match.name}' is a negative multiple of '{intermediate}'! (distance: {best_match.delay})")
                 assert len(other_term) == len(expanded)
-                new_term = MaxTerm([SymbolicVariable(intermediate, -best_match.delay)])
+                new_term = MaxTerm([SymbolicVariable(intermediate, 0)])
                 # update old output
-                graph.set_output(best_match.name, new_term)
+                graph.set_output(best_match.name, new_term.plus(-best_match.delay))
                 graph.register_intermediate(intermediate, expanded)
                 graph.replace_intermediate(best_match.name, intermediate, delay=-best_match.delay)
+                graph.set_node(node_name, new_term)
+                return
         # save new intermediate and update output of this node
         graph.register_intermediate(intermediate, expanded)
         graph.set_node(node_name, new_term)
