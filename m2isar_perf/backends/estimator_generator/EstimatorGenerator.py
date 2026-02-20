@@ -60,11 +60,7 @@ class EstimatorGenerator:
         with outFile_src.open('w') as f:
             f.write(code_src)
 
-    def generateSchedulingFunctions(self, variant_, outDir_, suffix = ""):
-        self.builder = Builder(variant_)
-        self.__generateSchedulingFunctions(variant_, outDir_, suffix)
-
-    def __generateSchedulingFunctions(self, variant_, outDir_, suffix = ""):
+    def __generateSchedulingFunctions(self, variant_, outDir_):
 
         # For each scheduling function, create code body
         codeBodyDict = {}
@@ -76,7 +72,7 @@ class EstimatorGenerator:
         # Generate SchedulingFunction file
         template = Template(filename = str(self.templateDir) + "/src/SchedulingFunction.mako")
         code = template.render(**{"variant_": variant_, "codeBodyDict_": codeBodyDict, "builder_": self.builder})
-        outFile = outDir_ / "src" / f"{variant_.name}_SchedulingFunction{suffix}.cpp"
+        outFile = outDir_ / "src" / (variant_.name + "_SchedulingFunction.cpp")
         with outFile.open('w') as f:
             f.write(code)
         
@@ -98,8 +94,7 @@ class EstimatorGenerator:
                 func_(curNode, inputDict_)
 
                 for nxtNode_i in curNode.getAllOutNodes():
-                    if all((predecessor in visitedNodes) for predecessor in nxtNode_i.getAllInNodes()):
-                        nodeQueue.append(nxtNode_i)
+                    nodeQueue.append(nxtNode_i)
                 
     def __generateNodeCode(self, node_, inputDict_):
         """
