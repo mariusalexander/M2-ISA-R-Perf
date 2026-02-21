@@ -14,6 +14,9 @@
 # limitations under the License.
 #
 
+import pathlib
+import pickle
+
 from .SchedulingModel import SchedulingModel
 from meta_models.structural_model.StructuralModel import StructuralModel
 
@@ -57,7 +60,7 @@ class SchedulingTransformer:
 
             # Dump model to file
             with outfile.open('wb') as f:
-                pickle.dump(top, f)
+                pickle.dump(schedulingModel, f)
             
         return schedulingModel
 
