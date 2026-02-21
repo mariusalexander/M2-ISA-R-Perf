@@ -41,7 +41,7 @@ argParser.add_argument("-c", "--code_gen", action="store_true", help="Generate e
 argParser.add_argument("-m", "--monitor_description", action="store_true", help="Generate monitor description")
 argParser.add_argument("-i", "--info_print", action="store_true", help="Generate info/debug/doc prints")
 argParser.add_argument("-d", "--dump_dir", help="Directory to dump intermediatly generated models.")
-argParser.add_argument("--export-schedule", nargs=1, type=lambda p: pathlib.Path(p), help="Exports the schedule model for use with other tools")
+argParser.add_argument("-s", "--schedule", action="store_true", help="Forces the generation of the schedule model.")
 args = argParser.parse_args()
 
 # Resolve outDir
@@ -55,20 +55,12 @@ else:
     sys.exit("FATAL: Description format is not supported. Currently only supporting files of type .corePerfDsl")
 
 # Call model transformer (structural -> scheduling model) if applicable
-if args.code_gen or args.info_print or args.export_schedule:
-    schedModel = SchedulingTransformer().transform(structModel)
+if args.code_gen or args.info_print or args.schedule:
+    schedModel = SchedulingTransformer().transform(structModel, args.dump_dir)
 
 # Call applicable backends
 if args.monitor_description:
     backend_monitor_extractor.execute(structModel, outDir)
-# Export as pickle file
-if args.export_schedule:
-    [filename] = args.export_schedule
-    path = f"{outDir}/{filename}.pkl"
-    print(f" > exporting schedule model to '{path}'...")
-    with open(path, 'wb') as file:
-        pickle.dump(schedModel, file=file)
-    print(f" > done!")
 if args.code_gen:
     EstimatorGenerator().execute(schedModel, outDir)
 if args.info_print:

@@ -22,7 +22,9 @@ class SchedulingTransformer:
     def __init__(self):
         pass
 
-    def transform(self, structuralModel_:StructuralModel) -> SchedulingModel:
+    def transform(self, structuralModel_:StructuralModel, outdir_:str=None) -> SchedulingModel:
+
+        outdir = pathlib.Path(outdir_).resolve() if outdir_ is not None else None
 
         schedulingModel = SchedulingModel()
 
@@ -37,6 +39,25 @@ class SchedulingTransformer:
 
             self.__generateTimingVariables(var_i, variant)
             self.__generateSchedulingFunction(var_i, variant)
+
+        # If outdir is set, dump top-model to file
+        if outdir is not None:
+            print(" > Storing schedule model")
+            print(f"Out-directory: {outdir}")
+
+            # Creating out-directory
+            pathlib.Path(outdir).mkdir(parents=True, exist_ok=True)
+
+            # Make path for out-file
+            outfile_name = 'schedule.model'
+            outfile = outdir / outfile_name
+            print(f"File: {outfile_name}")
+            if outfile.is_file():
+                print("\tFile exists and will be replaced!")
+
+            # Dump model to file
+            with outfile.open('wb') as f:
+                pickle.dump(top, f)
             
         return schedulingModel
 

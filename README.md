@@ -39,11 +39,13 @@ Always make sure to run M2-ISA-R-Perf from within the virtual Python environment
 
 Run the entire tool chain like this:
 
-    $ python m2isar_perf/run.py <path/to/corePerfDsl/description> [-c] [-i] [-m]
+    $ python m2isar_perf/run.py <path/to/corePerfDsl/description> [-c] [-i] [-m] [-d DIR [-s]]
 
 - c: Generate performance estimator source files
 - i: Generate documentation
 - m: Generate monitor description file
+- d: Dump structural model to directory
+- s: Can be used in conjunction with -d to dump schedule model to directory
 
 Use the help option to get an overview of supported input arguments:
 
