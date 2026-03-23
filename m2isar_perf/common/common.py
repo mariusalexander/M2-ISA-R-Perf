@@ -15,9 +15,22 @@
 #
 
 import pathlib
+import time
 
 def resolveOutDir(outDir_, file_, offset_=0):
     if outDir_ is None:
         return pathlib.Path(file_).resolve().parents[offset_] / "out"
     else:
         return pathlib.Path(outDir_).resolve()
+
+# logs time taken for a code block
+class Profile:
+    def __init__(self, text: str):
+        self.text  = text
+
+    def __enter__(self):
+        self.start = time.perf_counter_ns()
+
+    def __exit__(self, *args):
+        self.end  = time.perf_counter_ns()
+        print(f"{self.text} took {(self.end - self.start) / 1_000_000}ms!")

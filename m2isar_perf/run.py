@@ -50,13 +50,15 @@ outDir = cf.resolveOutDir(args.output_dir, __file__, 1)
 filtered_out_cores = False
 # Call frontend to generate structural-model
 if args.description.endswith('.corePerfDsl'):
-    structModel = Frontend.execute(args.description, args.dump_dir)
+    with cf.Profile("generating struct model"):
+        structModel = Frontend.execute(args.description, args.dump_dir)
 else:
     sys.exit("FATAL: Description format is not supported. Currently only supporting files of type .corePerfDsl")
 
 # Call model transformer (structural -> scheduling model) if applicable
 if args.code_gen or args.info_print or args.schedule:
-    schedModel = SchedulingTransformer().transform(structModel, args.dump_dir)
+    with cf.Profile("generating schedule model"):
+        schedModel = SchedulingTransformer().transform(structModel, args.dump_dir)
 
 # Call applicable backends
 if args.monitor_description:
