@@ -84,14 +84,6 @@ class Variant(FrozenBase):
             return self.timingVariables[name_]
         raise RuntimeError(f"TimingVariable {name_} does not exist!")
 
-    def getSchedulingFunction(self, name_:str) -> Optional['SchedulingFunction']:
-        elements = list(filter(lambda e: e.name == name_, self.getAllSchedulingFunctions()))
-        if len(elements) > 1:
-            raise RuntimeError(f"Duplicate SchedulingFunction '{name_}'!")
-        if len(elements) == 1:
-            return elements[0]
-        raise RuntimeError(f"SchedulingFunction '{name_}' does not exist!")
-
     def getAllExternalModels(self) -> List['ExternalModels']:
         return list(self.externalModels.values())
     

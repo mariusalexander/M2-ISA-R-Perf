@@ -20,7 +20,6 @@ import argparse
 import pathlib
 import pickle
 import sys
-import os
 
 from common import common as cf
 
@@ -41,7 +40,6 @@ argParser.add_argument("-c", "--code_gen", action="store_true", help="Generate e
 argParser.add_argument("-m", "--monitor_description", action="store_true", help="Generate monitor description")
 argParser.add_argument("-i", "--info_print", action="store_true", help="Generate info/debug/doc prints")
 argParser.add_argument("-d", "--dump_dir", help="Directory to dump intermediatly generated models.")
-argParser.add_argument("-s", "--schedule", action="store_true", help="Forces the generation of the schedule model.")
 args = argParser.parse_args()
 
 # Resolve outDir
@@ -50,15 +48,13 @@ outDir = cf.resolveOutDir(args.output_dir, __file__, 1)
 filtered_out_cores = False
 # Call frontend to generate structural-model
 if args.description.endswith('.corePerfDsl'):
-    with cf.Profile("generating struct model"):
-        structModel = Frontend.execute(args.description, args.dump_dir)
+    structModel = Frontend.execute(args.description, args.dump_dir)
 else:
     sys.exit("FATAL: Description format is not supported. Currently only supporting files of type .corePerfDsl")
 
 # Call model transformer (structural -> scheduling model) if applicable
-if args.code_gen or args.info_print or args.schedule:
-    with cf.Profile("generating schedule model"):
-        schedModel = SchedulingTransformer().transform(structModel, args.dump_dir)
+if args.code_gen or args.info_print or args.dump_dir:
+    schedModel = SchedulingTransformer().transform(structModel, args.dump_dir)
 
 # Call applicable backends
 if args.monitor_description:
