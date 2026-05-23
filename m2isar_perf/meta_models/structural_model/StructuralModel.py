@@ -1,12 +1,12 @@
-# 
+#
 # Copyright 2022 Chair of EDA, Technical University of Munich
-# 
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-# 
+#
 #       http://www.apache.org/licenses/LICENSE-2.0
-# 
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -34,7 +34,7 @@ class Variant(FrozenBase):
         self.core = ""
 
         self.models = []
-        
+
         self.instructions = []
 
         super().__init__()
@@ -52,7 +52,7 @@ class Variant(FrozenBase):
     def addResourceModel(self, model_):
         model_.isResourceModel = True
         self.addModel(model_)
-        
+
     # Link stage and pipeline elements
     def resolvePipelineStructure(self):
         # Iterates through all (sub-)stages and (sub-)pipelines, and sets parent component.
@@ -62,7 +62,7 @@ class Variant(FrozenBase):
         for pipe_i in self.pipeline.getAllSubPipelines():
             for block_i in pipe_i.blockPipelines:
                 block_i.blockedByPipelines.append(pipe_i)
-                                 
+
     def getAllMicroactions(self):
         return self.pipeline.getAllMicroactions()
 
@@ -71,33 +71,33 @@ class Variant(FrozenBase):
 
     def getAllModels(self):
         return self.models
-        
+
     def getAllConnectorModels(self):
         ret = []
         for m_i in self.models:
             if m_i.isConnectorModel:
                 ret.append(m_i)
         return ret
-        
+
     def getAllResourceModels(self):
         ret = []
         for m_i in self.models:
             if m_i.isResourceModel:
                 ret.append(m_i)
         return ret
-        
+
     def getAllInstructions(self):
         return self.instructions
 
     def getPipeline(self):
         return self.pipeline
-    
+
     def getPipelineUsageDict(self):
         pipelineUsageDict = {}
-        
+
         for instr in self.instructions:
             pipelineUsage = {}
-   
+
             for st in self.getAllStages():
                 usedMicroactions = []
                 for uA in st.microactions:
@@ -107,7 +107,7 @@ class Variant(FrozenBase):
                 pipelineUsage[st.name] = usedMicroactions
 
             pipelineUsageDict[instr.name] = pipelineUsage
-        return pipelineUsageDict                
+        return pipelineUsageDict
 
     def getAllUsedTraceValues(self):
         usedTrVals = []
@@ -123,7 +123,10 @@ class Variant(FrozenBase):
                     usedTrVals.append(trVal_i)
 
         return usedTrVals
-    
+
+    def getParentModel(self):
+        return self.parent
+
 class Pipeline(FrozenBase):
 
     def __init__(self):
@@ -133,7 +136,7 @@ class Pipeline(FrozenBase):
         self.isParallel = False
         self.blockPipelines = [] # List of pipelines blocked by THIS pipeline
         self.blockedByPipelines = [] # List of pipelines which are blocking THIS pipeline
-        
+
         super().__init__()
 
     def setParent(self, parent_):
@@ -146,10 +149,10 @@ class Pipeline(FrozenBase):
         for comp_i in self.components:
             if type(comp_i) is Pipeline:
                 comp_i.setBlockedByPipeline(pipe_)
-            
+
     def isTopPipeline(self):
         return self.parent is None
-        
+
     # Return all microactions located in (sub-) stages of this pipeline
     def getAllMicroactions(self):
         uActions = []
@@ -178,7 +181,7 @@ class Pipeline(FrozenBase):
             elif type(comp_i) is Stage:
                 pipes.extend(comp_i.getAllPipelines())
         return pipes
-    
+
     # Returns first stages of this pipeline (Only 1st-level sub-stages, i.e. does not iterrate into sub-stages)
     def getFirstStages(self):
         stages = []
@@ -199,7 +202,7 @@ class Pipeline(FrozenBase):
             comp = self.components[-1]
             stages.extend(self.__getLastStagesFromComponent(comp))
         return stages
-    
+
     def getNextStages(self, comp_):
 
         # Sequential
@@ -231,21 +234,21 @@ class Pipeline(FrozenBase):
             return []
         elif type(self.parent) is Pipeline:
             return self.parent.getNextStages(self)
-            
+
     def __getLastStagesFromComponent(self, comp_):
         if type(comp_) is Pipeline:
             return comp_.getLastStages()
         elif type(comp_) is Stage:
             return [comp_]
         raise RuntimeError(f"Unexpected type {type(comp_)}")
-        
+
     def __getFirstStagesFromComponent(self, comp_):
         if type(comp_) is Pipeline:
             return comp_.getFirstStages()
         elif type(comp_) is Stage:
             return [comp_]
         raise RuntimeError(f"Unexpected type {type(comp_)}")
-    
+
 class Stage(FrozenBase):
 
     def __init__(self):
@@ -254,7 +257,7 @@ class Stage(FrozenBase):
         self.paths = [] # List of parallel microactions and/or sub-pipelines in stage
         self.capacity = 0
         self.hasOutputBuffer = False
-        
+
         super().__init__()
 
     def setParent(self, parent_):
@@ -275,7 +278,7 @@ class Stage(FrozenBase):
 
     def isPrimaryStage(self):
         return (self.getParentStage() is None)
-    
+
     def isSubStage(self):
         return not self.isPrimaryStage()
 
@@ -286,14 +289,14 @@ class Stage(FrozenBase):
     # Returns pipelines directly in this stage (no (sub-)sub-pipelines).
     def getPipelines(self):
         return [p for p in self.paths if type(p) is Pipeline]
-    
+
     # Return all microactions in this stage and all its substages
     def getAllMicroactions(self):
         uActions = self.getMicroactions()
         for pipe_i in self.getPipelines():
             uActions.extend(pipe_i.getAllMicroactions())
         return uActions
-                    
+
     def getPaths(self):
         return self.paths
 
@@ -305,7 +308,7 @@ class Stage(FrozenBase):
                 pipes.append(path_i)
                 pipes.extend(path_i.getAllSubPipelines())
         return pipes
-    
+
     # Recursively returns all sub-stages (and sub-sub-...stages) of this stage (Does not return itself)
     def getAllSubStages(self):
         subStages = []
@@ -326,7 +329,7 @@ class Stage(FrozenBase):
         for pipe_i in self.getPipelines():
             stages.extend(pipe_i.getFirstStages())
         return stages
-    
+
     # Returns next stage of the same level
     # Returns [] if last sub-stage of a sub-pipeline
     # Returns [] if last stage of the top-pipeline
@@ -347,7 +350,7 @@ class Stage(FrozenBase):
             for blockPipe_i in self.parent.blockedByPipelines:
                 blockingStages.extend(blockPipe_i.getLastStages())
         return blockingStages
-    
+
 class Microaction(FrozenBase):
 
     def __init__(self):
@@ -356,7 +359,7 @@ class Microaction(FrozenBase):
         self.inConnectors = []
         self.resources = []
         self.outConnectors = []
-         
+
         super().__init__()
 
     def getInConnectors(self):
@@ -364,10 +367,10 @@ class Microaction(FrozenBase):
 
     def hasResources(self):
         return bool(self.resources)
-    
+
     def getResources(self):
         return self.resources
-    
+
     def getOutConnectors(self):
         return self.outConnectors
 
@@ -381,7 +384,7 @@ class Microaction(FrozenBase):
         self.inConnectors = uA_.inConnectors
         self.resources = uA_.resources
         self.outConnectors = uA_.outConnectors
-    
+
 class Resource(FrozenBase):
 
     def __init__(self):
@@ -407,19 +410,19 @@ class Resource(FrozenBase):
 
     def getResourceModelName(self):
         return self.resourceModel.name
-        
+
 class Connector(FrozenBase):
 
     def __init__(self):
         self.name = ""
         self.connectorModel = None
-        #self.connectorType = "" #TODO: is this information used / redundant (implied by micoraction)? 
-        
+        #self.connectorType = "" #TODO: is this information used / redundant (implied by micoraction)?
+
         super().__init__()
 
     def getConnectorModel(self):
         return self.connectorModel
-        
+
 class Model(FrozenBase):
 
     def __init__(self):
@@ -429,22 +432,22 @@ class Model(FrozenBase):
         self.inConnectors = []
         self.outConnectors = []
         self.hasInfoTrace = False
-        
+
         # TODO: Is this info ever required?
         self.isConnectorModel = False
         self.isResourceModel = False
-        
+
         super().__init__()
 
     def getTraceValues(self):
         return self.traceValues
-        
+
     def getInConnectors(self):
         return self.inConnectors
 
     def getOutConnectors(self):
         return self.outConnectors
-        
+
 class TraceValue(FrozenBase):
 
     def __init__(self):
@@ -460,7 +463,7 @@ class Instruction(FrozenBase):
         self.group = []
         self.microactions = []
         self.traceValueAssignments = []
-                
+
         super().__init__()
 
     def getUsedMicroactions(self):
@@ -471,7 +474,7 @@ class Instruction(FrozenBase):
 
     def addGroupName(self, name_):
         self.group.append(name_)
-    
+
 class TraceValueAssignment(FrozenBase):
 
     def __init__(self):

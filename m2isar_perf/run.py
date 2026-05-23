@@ -30,6 +30,7 @@ from meta_models.scheduling_model.SchedulingTransformer import SchedulingTransfo
 from backends.monitor_extractor import api as backend_monitor_extractor # TODO: Change from API to Class format
 from backends.structure_viewer.StructuralModelViewer import StructuralModelViewer
 from backends.schedule_viewer.SchedulingModelViewer import SchedulingModelViewer
+from backends.block_extractor_generator.BlockExtractorGenerator import BlockExtractorGenerator
 from backends.estimator_generator.EstimatorGenerator import EstimatorGenerator
 
 # Read command line arguments
@@ -40,12 +41,12 @@ argParser.add_argument("-c", "--code_gen", action="store_true", help="Generate e
 argParser.add_argument("-m", "--monitor_description", action="store_true", help="Generate monitor description")
 argParser.add_argument("-i", "--info_print", action="store_true", help="Generate info/debug/doc prints")
 argParser.add_argument("-d", "--dump_dir", help="Directory to dump intermediatly generated models.")
+argParser.add_argument("-e", "--block_ext", action="store_true", help="Generate block extractor")
 args = argParser.parse_args()
 
 # Resolve outDir
 outDir = cf.resolveOutDir(args.output_dir, __file__, 1)
 
-filtered_out_cores = False
 # Call frontend to generate structural-model
 if args.description.endswith('.corePerfDsl'):
     structModel = Frontend.execute(args.description, args.dump_dir)
@@ -61,6 +62,8 @@ if args.monitor_description:
     backend_monitor_extractor.execute(structModel, outDir)
 if args.code_gen:
     EstimatorGenerator().execute(schedModel, outDir)
+if args.block_ext:
+    BlockExtractorGenerator().execute(structModel, outDir)
 if args.info_print:
     #StructuralModelViewer().execute(structModel, outDir)
     SchedulingModelViewer().execute(schedModel, outDir)
