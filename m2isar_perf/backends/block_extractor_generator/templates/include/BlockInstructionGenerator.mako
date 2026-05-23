@@ -23,16 +23,28 @@ public:
         % if builder_.isBranchInstr(instr_i):
         isBranch = true;
         % endif
+        % if builder_.usesICache(instr_i):
+        _usesICache = true;
+        % endif
+        % if builder_.usesDCache(instr_i):
+        _usesDCache = true;
+        % endif
+        % if builder_.usesDiv(instr_i):
+        _usesDiv = true;
+        % endif
+        % if builder_.usesDivU(instr_i):
+        _usesDivU = true;
+        % endif
     };
     ~BlockInstruction_${instr_i.name}() = default;
 
-    std::string getJsonStr(std::string offset_){
+
+    std::string getJsonStr() override {
         std::stringstream ret_strs;
-        ret_strs << offset_ << "{ \"typeId\": " << typeId << ", \"name\": \"${instr_i.name}\"";
+        ret_strs << "\"typeId\": " << typeId << ", \"name\": \"${instr_i.name}\"";
         % for (key_i, val_i) in builder_.getTraceValuePairs(instr_i):
         ret_strs << ", \"${key_i}\": " << ${val_i};
         % endfor
-        ret_strs << " }";
         return ret_strs.str();
     };
 
