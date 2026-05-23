@@ -76,11 +76,40 @@ class CodeBuilder:
             #     retList.append((obsTrVal_i, "\"null\""))
         return retList
     
+    def __getObservableTraceValues(self, instr_):
+        return [x.getTraceValue().name for x in instr_.getTraceValueAssignments()]
+    
     def isBranchInstr(self, instr_):
         if instr_.identifier in self.branchInstrList:
             return True
         return False
-    
-    def __getObservableTraceValues(self, instr_):
-        return [x.getTraceValue().name for x in instr_.getTraceValueAssignments()]
+
+    # TODO: hardcoded links -> very hacky
+    def usesICache(self, instr_):
+        return any(
+            (r.resourceModel and r.resourceModel.link == "models/cv32e40p/CustomICacheModel.h")
+            for m in instr_.getUsedMicroactions()
+            for r in m.getResources()
+        )
+
+    def usesDCache(self, instr_):
+        return any(
+            (r.resourceModel and r.resourceModel.link == "models/cv32e40p/CustomDCacheModel.h")
+            for m in instr_.getUsedMicroactions()
+            for r in m.getResources()
+        )
+
+    def usesDiv(self, instr_):
+        return any(
+            (r.resourceModel and r.resourceModel.link == "models/cv32e40p/DividerModel.h")
+            for m in instr_.getUsedMicroactions()
+            for r in m.getResources()
+        )
+
+    def usesDivU(self, instr_):
+        return any(
+            (r.resourceModel and r.resourceModel.link == "models/cv32e40p/DividerUnsignedModel.h")
+            for m in instr_.getUsedMicroactions()
+            for r in m.getResources()
+        )
 
