@@ -1,12 +1,12 @@
-# 
+#
 # Copyright 2022 Chair of EDA, Technical University of Munich
-# 
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-# 
+#
 #       http://www.apache.org/licenses/LICENSE-2.0
-# 
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -24,11 +24,11 @@ class Builder():
     def __init__(self, dictionary_):
 
         self.dictionary = dictionary_
-        
+
     def buildTopModel(self):
 
         top = StructuralModel.StructuralModel()
-        
+
         # Assign microactions and trace-value-assignments which are defined via the ALL and REST keywords
         instrId = 0
         for instr_name, instr in self.dictionary.instructions.items():
@@ -48,21 +48,21 @@ class Builder():
             # Assign unique identifier to every instruction
             instr.identifier = instrId
             instrId += 1
-                
+
         # Finalize the variants and add to top (structural model)
         for model_name in self.dictionary.variants.keys():
 
             # Assign all instructions to each variant
             for instr_i in self.dictionary.instructions.values():
                 self.dictionary.variants[model_name].instructions.append(instr_i)
-                
+
             # Create variant instance with unique child objects
             # NOTE: Make deep copy of dictionary, as we also need to copy non-virtual resources/microactions that are assigned to the current model later on
             dictionary_cpy = copy.deepcopy(self.dictionary)
             variant = dictionary_cpy.variants[model_name]
-            
+
             # Resolve virtual microactions
-            for uActAss in dictionary_cpy.microactionAssignments[variant.name]:                
+            for uActAss in dictionary_cpy.microactionAssignments[variant.name]:
                 viruAct = uActAss[0]
                 uAct = uActAss[1]
                 viruAct.assign(uAct)
@@ -72,7 +72,7 @@ class Builder():
                 virRes = resAss[0]
                 res = resAss[1]
                 virRes.assign(res)
-                
+
             # Check that all virtual components of CorePerfModel have been resolved and link resource models to corePerfModel
             for uA in variant.getAllMicroactions():
                 if uA.name == "":
@@ -81,14 +81,14 @@ class Builder():
                     for res_i in uA.getResources():
                         if res_i.name == "":
                             raise RuntimeError(f"Variant {variant.name} does not assign a resource to virtual resource {res.virtualAlias}")
-                        
+
             # Link required models used as resource models to variant
             for uA in variant.getAllMicroactions():
                 for res_i in uA.getResources():
                     if (resModel:=res_i.resourceModel) is not None:
                         variant.addResourceModel(resModel)
 
-            # Establish link from Connectors to (Connector)Models 
+            # Establish link from Connectors to (Connector)Models
             # Check that (Connector)Model out-connectors are unique (i.e. no connector "driven" by more than one external model)
             outConnectors = []
             for conModel_i in variant.getAllConnectorModels():
@@ -103,12 +103,12 @@ class Builder():
 
             # Establish link between stages and pipelines (parent components, blocking pipelines)
             variant.resolvePipelineStructure()
-                
+
             # Add finalized variant to TopModel
             top.variants.append(variant)
 
         return top
-                    
+
     # Helper Functions
 
     def __setConnectorType(self, con_, type_, conModel_, corePerfModel_):

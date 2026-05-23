@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 
-# 
+#
 # Copyright 2022 Chair of EDA, Technical University of Munich
-# 
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-# 
+#
 #       http://www.apache.org/licenses/LICENSE-2.0
-# 
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -23,13 +23,14 @@ import sys
 
 from common import common as cf
 
-from frontends.corePerfDsl import api as Frontend # TODO: Change from API to Class format 
+from frontends.corePerfDsl import api as Frontend # TODO: Change from API to Class format
 
 from meta_models.scheduling_model.SchedulingTransformer import SchedulingTransformer
 
-from backends.monitor_extractor import api as backend_monitor_extractor # TODO: Change from API to Class format 
+from backends.monitor_extractor import api as backend_monitor_extractor # TODO: Change from API to Class format
 from backends.structure_viewer.StructuralModelViewer import StructuralModelViewer
 from backends.schedule_viewer.SchedulingModelViewer import SchedulingModelViewer
+from backends.block_extractor_generator.BlockExtractorGenerator import BlockExtractorGenerator
 from backends.estimator_generator.EstimatorGenerator import EstimatorGenerator
 
 # Read command line arguments
@@ -40,6 +41,7 @@ argParser.add_argument("-c", "--code_gen", action="store_true", help="Generate e
 argParser.add_argument("-m", "--monitor_description", action="store_true", help="Generate monitor description")
 argParser.add_argument("-i", "--info_print", action="store_true", help="Generate info/debug/doc prints")
 argParser.add_argument("-d", "--dump_dir", help="Directory to dump intermediatly generated models.")
+argParser.add_argument("-e", "--block_ext", action="store_true", help="Generate block extractor")
 args = argParser.parse_args()
 
 # Resolve outDir
@@ -52,14 +54,16 @@ else:
     sys.exit("FATAL: Description format is not supported. Currently only supporting files of type .corePerfDsl")
 
 # Call model transformer (structural -> scheduling model) if applicable
-if args.code_gen or args.info_print:
-    schedModel = SchedulingTransformer().transform(structModel)
+if args.code_gen or args.info_print or args.dump_dir:
+    schedModel = SchedulingTransformer().transform(structModel, args.dump_dir)
 
 # Call applicable backends
 if args.monitor_description:
     backend_monitor_extractor.execute(structModel, outDir)
 if args.code_gen:
     EstimatorGenerator().execute(schedModel, outDir)
-if args.info_print :
+if args.block_ext:
+    BlockExtractorGenerator().execute(structModel, outDir)
+if args.info_print:
     #StructuralModelViewer().execute(structModel, outDir)
     SchedulingModelViewer().execute(schedModel, outDir)
