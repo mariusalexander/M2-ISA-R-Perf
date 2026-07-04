@@ -42,20 +42,26 @@ argParser.add_argument("-m", "--monitor_description", action="store_true", help=
 argParser.add_argument("-i", "--info_print", action="store_true", help="Generate info/debug/doc prints")
 argParser.add_argument("-d", "--dump_dir", help="Directory to dump intermediatly generated models.")
 argParser.add_argument("-e", "--block_ext", action="store_true", help="Generate block extractor")
+# Temporary
+argParser.add_argument("-n", "--num_variants", type=int, nargs= 1, required=False, default=None, help="Number of variants to extract.")
 args = argParser.parse_args()
 
 # Resolve outDir
 outDir = cf.resolveOutDir(args.output_dir, __file__, 1)
 
+if args.num_variants is not None:
+    [args.num_variants] = args.num_variants
+    args.num_variants = max(args.num_variants, 1)
+
 # Call frontend to generate structural-model
 if args.description.endswith('.corePerfDsl'):
-    structModel = Frontend.execute(args.description, args.dump_dir)
+    structModel = Frontend.execute(args.description, args.dump_dir, max_variants=args.num_variants)
 else:
     sys.exit("FATAL: Description format is not supported. Currently only supporting files of type .corePerfDsl")
 
 # Call model transformer (structural -> scheduling model) if applicable
 if args.code_gen or args.info_print or args.dump_dir:
-    schedModel = SchedulingTransformer().transform(structModel, args.dump_dir)
+    schedModel = SchedulingTransformer().transform(structModel, args.dump_dir, max_variants=args.num_variants)
 
 # Call applicable backends
 if args.monitor_description:

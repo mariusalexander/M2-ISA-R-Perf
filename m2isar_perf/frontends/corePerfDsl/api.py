@@ -27,7 +27,7 @@ from .parser_gen import CorePerfDSLParser
 
 from .ModelGen import ModelGen
 
-def execute(description_, outdir_=None):
+def execute(description_, outdir_=None, max_variants:int=None):
 
     print()
     print("-- FRONTEND: CORE_PERF_DSL --")
@@ -51,6 +51,11 @@ def execute(description_, outdir_=None):
     modelGen = ModelGen()
     modelGen.extractInstances(tree)
     top = modelGen.buildModel()
+        
+    if not max_variants is None:
+        top.variants = top.variants[:max_variants]
+
+    print("len struct model:", len(top.getAllVariants()))
     
     # If outdir is set, dump top-model to file
     if outdir is not None:

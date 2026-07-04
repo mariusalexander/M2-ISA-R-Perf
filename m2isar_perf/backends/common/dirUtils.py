@@ -19,17 +19,18 @@ import errno
 import os
 import shutil
 
-def createOrReplaceDir(dir_, suppress_warning=False):
+def createOrReplaceDir(dir_, suppress_warning=False, replace=True):
     try:
         pathlib.Path(dir_).mkdir(parents=True)
     except OSError as e:
         if e.errno == errno.EEXIST:
-            # TODO: Better handling here? Wait for user input?
-            if not suppress_warning:
-                #print("WARNING: %s folder exists and is replaced" %(os.path.basename(os.path.normpath(str(dir_)))))
-                print("WARNING: Following directory exists and is replaced: %s" %str(dir_))
-            shutil.rmtree(dir_)
-            pathlib.Path(dir_).mkdir(parents=True)
+            if replace:
+                # TODO: Better handling here? Wait for user input?
+                if not suppress_warning:
+                    #print("WARNING: %s folder exists and is replaced" %(os.path.basename(os.path.normpath(str(dir_)))))
+                    print("WARNING: Following directory exists and is replaced: %s" %str(dir_))
+                shutil.rmtree(dir_)
+                pathlib.Path(dir_).mkdir(parents=True)
         else:
             raise
     return dir_
