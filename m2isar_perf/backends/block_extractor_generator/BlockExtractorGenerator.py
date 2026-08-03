@@ -33,9 +33,10 @@ class BlockExtractorGenerator:
         for variant_i in model_.getAllVariants():
 
             print(f" > Creating output directory for {variant_i.name}")
-            outDir = dirUtils.getCodeDirPath(outDir_, variant_i.name, f"block_extractor/{variant_i.name}" )
+            outDir = dirUtils.getCodeDirPath(outDir_, variant_i.name, f"perf_model")
+            #outDir = dirUtils.getCodeDirPath(outDir_, variant_i.name, f"block_extractor/{variant_i.name}" )
             #dirUtils.createOrReplaceDir(outDir / "src")
-            dirUtils.createOrReplaceDir(outDir / "include")
+            dirUtils.createOrReplaceDir(outDir / "include", replace=False)
 
             self.builder = CodeBuilder(variant_i)
 

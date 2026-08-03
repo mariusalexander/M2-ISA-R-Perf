@@ -25,7 +25,7 @@ class SchedulingTransformer:
     def __init__(self):
         pass
 
-    def transform(self, structuralModel_:StructuralModel, outdir_:str=None) -> SchedulingModel:
+    def transform(self, structuralModel_:StructuralModel, outdir_:str=None, max_variants:int=None) -> SchedulingModel:
 
         outdir = pathlib.Path(outdir_).resolve() if outdir_ is not None else None
 
@@ -42,6 +42,11 @@ class SchedulingTransformer:
 
             self.__generateTimingVariables(var_i, variant)
             self.__generateSchedulingFunction(var_i, variant)
+
+        if not max_variants is None:
+            schedulingModel.variants = schedulingModel.variants[:max_variants]
+
+        print("len scheduling model:", len(schedulingModel.getAllVariants()))
 
         # If outdir is set, dump top-model to file
         if outdir is not None:
