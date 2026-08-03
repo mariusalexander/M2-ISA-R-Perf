@@ -42,7 +42,6 @@ argParser.add_argument("-m", "--monitor_description", action="store_true", help=
 argParser.add_argument("-i", "--info_print", action="store_true", help="Generate info/debug/doc prints")
 argParser.add_argument("-d", "--dump_dir", help="Directory to dump intermediatly generated models.")
 argParser.add_argument("-e", "--block_ext", action="store_true", help="Generate block extractor")
-# Temporary
 argParser.add_argument("-n", "--num_variants", type=int, nargs= 1, required=False, default=None, help="Number of variants to extract.")
 args = argParser.parse_args()
 
